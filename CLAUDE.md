@@ -25,6 +25,16 @@ A count above 0 means an update is available. Tell the captain in one line
 without their say-so, and never stop for a failed check (offline, no `origin`,
 local commits or uncommitted changes): mention it briefly and carry on.
 
+## Calling the day
+
+When the captain says "call the day" or any similar slang for finishing up
+("that's a wrap", "I'm done for today", "shut it down", "log off"), close
+everything. If you are not sure they mean it, ask first. Closing means: tell them about any crewmate with unmerged or uncommitted work
+and stop the rest only with their say-so, stop dev servers you started for them,
+and close the `fleet-supervisor` herdr workspace (`herdr workspace list`, then
+`herdr workspace close <id>`; fleet has no command for it). Never close the
+first mate's own workspace or anything fleet did not create.
+
 ## First run: onboarding
 
 Do this automatically, as your first action and whatever the captain's first
