@@ -87,6 +87,15 @@ func ensureSupervisor() (started bool, pane string, pid int, err error) {
 		return false, "", 0, err
 	}
 	c := herdr.New()
+	// No supervisor is running, so any workspace still labelled for one is a dead
+	// leftover of an earlier run; close it rather than pile up another beside it.
+	if wss, lerr := c.WorkspaceList(); lerr == nil {
+		for _, w := range wss {
+			if w.Label == supervisorLabel {
+				c.WorkspaceClose(w.WorkspaceID)
+			}
+		}
+	}
 	ws, err := c.WorkspaceCreate(cwd, supervisorLabel)
 	if err != nil {
 		return false, "", 0, fmt.Errorf("create supervisor workspace: %w", err)

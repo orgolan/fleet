@@ -24,20 +24,21 @@ type Server struct {
 	Socket string
 
 	mu            sync.Mutex
-	agents        map[string]*Agent   // by pane
-	Prompts       []string            // "<name>: <text>", in order
-	Notifications []string            // titles, in order
-	Keys          []string            // "<target>: <key,key>" from agent.send_keys, in order
-	Focused       []string            // agent.focus targets, in order
-	Removed       []string            // "<workspace>" or "<workspace>!" (forced) from worktree.remove
-	Runs          []string            // "<pane>: <command>" typed via pane.send_input
-	Workspaces    []map[string]any    // workspace.create params, in order
-	DirtyWS       map[string]bool     // workspaces whose worktree.remove needs force
-	GoneWS        map[string]bool     // workspaces whose worktree git no longer knows
-	Closed        []string            // workspace.close targets, in order
-	Started       []string            // "<name> <kind> <args>" from agent.start, in order
-	openWS        []map[string]string // workspaces reported by workspace.list
-	Version       string              // ping version, "fake" if empty
+	agents        map[string]*Agent // by pane
+	Prompts       []string          // "<name>: <text>", in order
+	Notifications []string          // titles, in order
+	Keys          []string          // "<target>: <key,key>" from agent.send_keys, in order
+	Focused       []string          // agent.focus targets, in order
+	Removed       []string          // "<workspace>" or "<workspace>!" (forced) from worktree.remove
+	Runs          []string          // "<pane>: <command>" typed via pane.send_input
+	Workspaces    []map[string]any  // workspace.create params, in order
+	DirtyWS       map[string]bool   // workspaces whose worktree.remove needs force
+	GoneWS        map[string]bool   // workspaces whose worktree git no longer knows
+	UnmanagedWS   map[string]bool   // workspaces herdr did not create as worktree checkouts
+	Closed        []string          // workspace.close targets, in order
+	Started       []string          // "<name> <kind> <args>" from agent.start, in order
+	openWS        []map[string]any  // workspaces reported by workspace.list
+	Version       string            // ping version, "fake" if empty
 	subs          []*sub
 	ln            net.Listener
 }
@@ -110,14 +111,33 @@ func (s *Server) SetGone(ws string) {
 func (s *Server) AddWorkspace(id, label string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.openWS = append(s.openWS, map[string]string{"workspace_id": id, "label": label})
+	s.openWS = append(s.openWS, map[string]any{"workspace_id": id, "label": label})
+}
+
+// AddRepoWorkspace makes workspace.list report herdr's workspace on a repo's main checkout.
+func (s *Server) AddRepoWorkspace(id, checkout string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.openWS = append(s.openWS, map[string]any{"workspace_id": id, "label": "repo",
+		"worktree": map[string]any{"checkout_path": checkout, "is_linked_worktree": false}})
+}
+
+// SetUnmanaged makes worktree.remove for a workspace fail as herdr does for a
+// workspace it did not create as a worktree checkout (for example a resumed crewmate's).
+func (s *Server) SetUnmanaged(ws string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.UnmanagedWS == nil {
+		s.UnmanagedWS = map[string]bool{}
+	}
+	s.UnmanagedWS[ws] = true
 }
 
 // CloseWorkspace drops a workspace from workspace.list, as closing it would.
 func (s *Server) CloseWorkspace(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var keep []map[string]string
+	var keep []map[string]any
 	for _, w := range s.openWS {
 		if w["workspace_id"] != id {
 			keep = append(keep, w)
@@ -300,6 +320,9 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 			Force       bool
 		}
 		json.Unmarshal(raw, &p)
+		if s.UnmanagedWS[p.WorkspaceID] {
+			return nil, "not_linked_worktree: workspace is not a Herdr-managed worktree checkout"
+		}
 		if s.GoneWS[p.WorkspaceID] {
 			return nil, "worktree_remove_failed: fatal: '/wt' is not a working tree"
 		}
@@ -338,7 +361,7 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 		}
 		json.Unmarshal(raw, &p)
 		s.Closed = append(s.Closed, p.WorkspaceID)
-		var keep []map[string]string
+		var keep []map[string]any
 		for _, w := range s.openWS {
 			if w["workspace_id"] != p.WorkspaceID {
 				keep = append(keep, w)

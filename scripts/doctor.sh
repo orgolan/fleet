@@ -52,6 +52,12 @@ if [ -n "$GOBIN" ]; then
 else
 	warn "go not found (only needed to rebuild fleet)" "install Go >= 1.27: https://go.dev/dl"
 fi
+# A new-enough Go elsewhere does not help a bare `go build` if an older one is first on PATH.
+pathgo=$(command -v go 2>/dev/null || true)
+if [ -n "$pathgo" ] && [ -n "$GOBIN" ] && [ "$pathgo" != "$GOBIN" ]; then
+	pv=$("$pathgo" env GOVERSION 2>/dev/null); pv=${pv#go}
+	version_ge "${pv:-x}" 1 27 || warn "go on PATH is ${pv:-?} ($pathgo), older than 1.27; fleet's scripts use $GOBIN but a bare 'go build' will fail" "put $(dirname "$GOBIN") first on PATH"
+fi
 
 section "Binary"
 BIN=$ROOT/bin/fleet

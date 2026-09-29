@@ -25,10 +25,13 @@ var nameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // Project is one registered repo.
 type Project struct {
-	Name    string    `json:"name"`
-	Path    string    `json:"path"`
-	Base    string    `json:"base,omitempty"` // default base ref for new branches
-	AddedAt time.Time `json:"added_at"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Base string `json:"base,omitempty"` // default base ref for new branches
+	// AgentArgs are native agent arguments used for every spawn in this project
+	// unless the spawn gives its own after "--".
+	AgentArgs []string  `json:"agent_args,omitempty"`
+	AddedAt   time.Time `json:"added_at"`
 }
 
 // Dir is $FLEET_PROJECTS, else projects/ next to the fleet checkout the binary
@@ -161,6 +164,21 @@ func register(name, path, base string) (Project, error) {
 		return zero, err
 	}
 	return p, os.WriteFile(filepath.Join(dir, "notes.md"), []byte(newNotes(name)), 0o644)
+}
+
+// SetAgentArgs records the default agent arguments for a project; none clears them.
+func SetAgentArgs(name string, args []string) (Project, error) {
+	p, err := Get(name)
+	if err != nil {
+		return p, err
+	}
+	p.AgentArgs = args
+	dir, _ := entryDir(name)
+	b, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return p, err
+	}
+	return p, os.WriteFile(filepath.Join(dir, "project.json"), append(b, '\n'), 0o644)
 }
 
 // Get loads one project.

@@ -95,3 +95,50 @@ func TestGitInfo(t *testing.T) {
 		t.Fatalf("missing worktree: %+v", g)
 	}
 }
+
+func TestPortBlocksAreUniqueAmongLiveTasks(t *testing.T) {
+	env(t)
+	save(t, ledger.Task{Name: "a", PortBase: 8900, State: "working"})
+	save(t, ledger.Task{Name: "b", PortBase: 8910, State: "stopped"})
+	if got := nextPortBase(); got != 8910 {
+		t.Fatalf("next = %d, want 8910 (8900 is held, 8910 was released)", got)
+	}
+	save(t, ledger.Task{Name: "c", PortBase: 8910, State: "idle"})
+	if got := nextPortBase(); got != 8920 {
+		t.Fatalf("next = %d, want 8920", got)
+	}
+}
+
+func TestBriefFileNamesThePortBlock(t *testing.T) {
+	got := briefFileContent(ledger.Task{Name: "a", Brief: "do it", PortBase: 8930})
+	for _, want := range []string{"FLEET_PORT_BASE=8930", "8930-8939", `"port": 8930, "testsPort": 8931`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("brief file lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestStatusShowsGitStateOfLiveTasks(t *testing.T) {
+	srv, c := env(t)
+	wt := gitRepo(t)
+	os.WriteFile(wt+"/wip.txt", []byte("w"), 0o644)
+	save(t, ledger.Task{Name: "a", Kind: "claude", PaneID: "w:p1", WorkspaceID: "wa", Worktree: wt, Base: "main", Brief: "x", BriefSent: true, State: "working"})
+	save(t, ledger.Task{Name: "b", Kind: "claude", PaneID: "w:p2", WorkspaceID: "wb", Worktree: wt, Base: "main", State: "stopped"})
+	srv.SetAgent("a", "w:p1", "working", "")
+	rows, err := Status(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		switch r.Name {
+		case "a":
+			if r.Git != "+0 ~1" {
+				t.Fatalf("a.Git = %q", r.Git)
+			}
+		case "b":
+			if r.Git != "-" {
+				t.Fatalf("stopped task shows git state %q", r.Git)
+			}
+		}
+	}
+}

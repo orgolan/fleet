@@ -526,3 +526,27 @@ func TestNormalFinishIsNotNudged(t *testing.T) {
 		t.Fatalf("unexpected prompts: %v", p)
 	}
 }
+
+// herdr opens a workspace on a repo's main checkout beside the crewmates'; once
+// none is using the repo it is a leftover worth reporting.
+func TestAuditReportsRepoWorkspaceOnceNoCrewmateUsesTheRepo(t *testing.T) {
+	task := ledger.Task{Name: "au4", Kind: "claude", Repo: "/proj/repo", PaneID: "w:p2", WorkspaceID: "wt", State: "stopped", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, auditTune)
+	srv.AddRepoWorkspace("wrepo", "/proj/repo")
+	srv.AddRepoWorkspace("wother", "/somewhere/else") // a repo fleet never used: left alone
+	eventually(t, "repo workspace reported", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "leftover workspace wrepo")
+	})
+}
+
+func TestAuditLeavesRepoWorkspaceWhileACrewmateUsesTheRepo(t *testing.T) {
+	task := ledger.Task{Name: "au5", Kind: "claude", Repo: "/proj/repo", PaneID: "w:p2", WorkspaceID: "wt", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, auditTune)
+	srv.SetAgent("au5", "w:p2", "working", "")
+	srv.AddRepoWorkspace("wrepo", "/proj/repo")
+	time.Sleep(300 * time.Millisecond)
+	if _, n := srv.Snapshot(); len(n) != 0 {
+		t.Fatalf("notifications = %v", n)
+	}
+}

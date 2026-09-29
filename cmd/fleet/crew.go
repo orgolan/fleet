@@ -59,6 +59,9 @@ func spawn(args []string) error {
 			}
 		}
 	}
+	if mb, ok := memAvailableMB(); ok && mb < lowMemoryMB {
+		fmt.Fprintf(os.Stderr, "fleet: warning: only %d MB of memory is available; a crewmate running Docker or a dev server can use a gigabyte. Merge or stop finished crewmates first (`fleet status`, `fleet merge`, `fleet stop`)\n", mb)
+	}
 	t, err := crew.Spawn(herdr.New(), spec)
 	if t.Name != "" {
 		// The crewmate is recorded (even if blocked or failed to start): make sure
@@ -90,6 +93,9 @@ func applyProject(spec *crew.Spec, name string) error {
 	}
 	spec.Repo = p.Path
 	spec.Project = name
+	if spec.Args == nil {
+		spec.Args = p.AgentArgs
+	}
 	// The captain trusted this project when registering it (fleet project add/new/trust).
 	spec.TrustClaude, _ = claudetrust.IsTrusted(p.Path)
 	if spec.Base == "" {
@@ -282,4 +288,30 @@ func parseAge(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("bad --older-than %q (try 12h, 7d, 0)", s)
 	}
 	return d, nil
+}
+
+// lowMemoryMB is the available memory under which spawning another crewmate warns.
+const lowMemoryMB = 1500
+
+// memAvailableMB reads MemAvailable from /proc/meminfo; ok is false where that is not readable.
+func memAvailableMB() (int, bool) {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, false
+	}
+	return parseMemAvailableMB(string(b))
+}
+
+func parseMemAvailableMB(meminfo string) (int, bool) {
+	for _, l := range strings.Split(meminfo, "\n") {
+		if rest, ok := strings.CutPrefix(l, "MemAvailable:"); ok {
+			f := strings.Fields(rest)
+			if len(f) == 0 {
+				return 0, false
+			}
+			kb, err := strconv.Atoi(f[0])
+			return kb / 1024, err == nil
+		}
+	}
+	return 0, false
 }

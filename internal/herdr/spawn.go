@@ -12,6 +12,12 @@ type Pane struct {
 type Workspace struct {
 	WorkspaceID string `json:"workspace_id"`
 	Label       string `json:"label"`
+	// Worktree is set when the workspace is on a git checkout; IsLinked is false for
+	// a repo's main checkout, which herdr opens a workspace for beside its worktrees.
+	Worktree *struct {
+		CheckoutPath string `json:"checkout_path"`
+		IsLinked     bool   `json:"is_linked_worktree"`
+	} `json:"worktree,omitempty"`
 }
 
 // Worktree is herdr's WorktreeInfo.

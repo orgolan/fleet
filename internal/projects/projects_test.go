@@ -162,3 +162,23 @@ func TestNewWithNoIdentityUsesAGenericOneNotAGuess(t *testing.T) {
 		t.Fatalf("user.name = %q", out)
 	}
 }
+
+func TestAgentArgsAreStoredAndCleared(t *testing.T) {
+	t.Setenv("FLEET_PROJECTS", t.TempDir())
+	if _, err := New("p"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetAgentArgs("p", []string{"--model", "opus"}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := Get("p"); len(p.AgentArgs) != 2 || p.AgentArgs[1] != "opus" {
+		t.Fatalf("args = %v", p.AgentArgs)
+	}
+	SetAgentArgs("p", nil)
+	if p, _ := Get("p"); len(p.AgentArgs) != 0 {
+		t.Fatalf("args = %v", p.AgentArgs)
+	}
+	if _, err := SetAgentArgs("nope", nil); err == nil {
+		t.Fatal("unknown project accepted")
+	}
+}

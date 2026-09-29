@@ -17,6 +17,7 @@ const projectUsage = `usage: fleet project <subcommand>
   new <name> [--no-trust]          create an empty git repo under projects/<name>/repo
   clone <name> <url> [--trust]     clone a repo under projects/<name>/repo
   add <name> <path> [--base REF] [--no-trust]   put an existing git repo (anywhere) in scope
+  agent-args <name> [args...]      default agent arguments for every spawn (no args: show; --clear: remove)
   trust <name>                     tell Claude Code to trust the project's folder
   list [--json]                    registered projects
   show <name>                      record, numbered notes and the project's tasks
@@ -84,6 +85,24 @@ func project(args []string) error {
 			fmt.Printf("not pre-trusted in Claude Code (it is someone else's code): after you have looked at it, run: fleet project trust %s\n", p.Name)
 		}
 		return trustProject(p, *trust)
+	case "agent-args":
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: fleet project agent-args <name> [--clear | args...]")
+		}
+		switch {
+		case len(rest) == 1:
+			p, err := projects.Get(rest[0])
+			if err != nil {
+				return err
+			}
+			fmt.Println(strings.Join(p.AgentArgs, " "))
+			return nil
+		case len(rest) == 2 && rest[1] == "--clear":
+			_, err := projects.SetAgentArgs(rest[0], nil)
+			return err
+		}
+		_, err := projects.SetAgentArgs(rest[0], rest[1:])
+		return err
 	case "trust":
 		if len(rest) != 1 {
 			return fmt.Errorf("usage: fleet project trust <name>")

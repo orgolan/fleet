@@ -183,3 +183,52 @@ func TestResumeRelaunchesAnExitedCrewmate(t *testing.T) {
 		t.Fatalf("second resume: %v", err)
 	}
 }
+
+// A resumed crewmate's workspace is not a herdr-managed worktree checkout, so
+// herdr refuses to remove it; stop then closes the workspace and git removes the
+// worktree, under the same safety rules.
+func TestStopUnmanagedWorkspaceRemovesWorktreeWithGit(t *testing.T) {
+	srv, c := env(t)
+	repo, wt, task := mergeRepo(t)
+	gitc(t, repo, "merge", "-q", "--no-ff", "-m", "Merge x", "fleet/x") // its work is merged
+	save(t, task)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	srv.SetWorkspace("w:p1", "wx")
+	srv.SetUnmanaged("wx")
+	if err := Stop(c, "x", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Fatal("worktree still on disk")
+	}
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wx" {
+		t.Fatalf("closed = %v", cl)
+	}
+	if got, _ := ledger.Load("x"); got.State != "stopped" {
+		t.Fatalf("state = %q", got.State)
+	}
+}
+
+func TestStopUnmanagedKeepsUnmergedOrDirtyWorkUnlessForced(t *testing.T) {
+	srv, c := env(t)
+	_, wt, task := mergeRepo(t) // fleet/x has a commit main lacks
+	save(t, task)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	srv.SetUnmanaged("wx")
+	err := Stop(c, "x", false)
+	if err == nil || !strings.Contains(err.Error(), "not merged") {
+		t.Fatalf("unmerged: %v", err)
+	}
+	if got, _ := ledger.Load("x"); got.State != "idle" {
+		t.Fatalf("state not restored: %q", got.State)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatal("worktree removed despite the refusal")
+	}
+	if err := Stop(c, "x", true); err != nil {
+		t.Fatalf("forced: %v", err)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Fatal("forced stop left the worktree")
+	}
+}

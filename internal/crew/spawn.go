@@ -77,7 +77,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		}
 	}
 	t := ledger.Task{
-		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Mate: s.Mate, Branch: s.Branch, Worktree: wt.Worktree.Path,
+		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Mate: s.Mate, PortBase: nextPortBase(), Branch: s.Branch, Worktree: wt.Worktree.Path,
 		WorkspaceID: wt.Workspace.WorkspaceID, PaneID: wt.RootPane.PaneID,
 		Base: base, BaseRev: baseRev, Brief: s.Brief, CreatedAt: time.Now().UTC(),
 	}

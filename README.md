@@ -89,6 +89,10 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet result <name> [--lines N]` | A crewmate's report, live or as saved when it was stopped. |
 | `fleet keys <name> <key...>` | Captain answers a blocked prompt, e.g. `enter`, `esc`, `ctrl+c`. |
 | `fleet focus <name>` | Focus the crewmate in the herdr UI. |
+| `fleet wait [--all] [--timeout 30m] [name...]` | Block until the named (or all live) crewmates settle. |
+| `fleet merge <name> [--test "cmd"] [--keep-running]` | Merge a finished crewmate's branch into its base in the project checkout (no commit until the optional test command passes; conflicts abort cleanly), warn about large added files, then stop it. |
+| `fleet resume <name>... \| --all` | Relaunch crewmates whose panes are gone, in their existing worktrees, continuing the agent's last session. |
+| `fleet project agent-args <name> [args...\|--clear]` | Default native agent arguments for every spawn in the project. |
 | `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. Its last output is saved for `fleet result`. |
 | `fleet prune [--older-than 7d] [--dry-run] [name...]` | Delete the records (and saved output) of tasks stopped longer ago than that. Live and exited tasks are never pruned. |
 | `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in its own `fleet-supervisor` herdr workspace). `spawn` does this automatically. |

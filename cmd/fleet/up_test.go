@@ -51,3 +51,31 @@ func TestSuperviseRefusesSecondInstance(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// A dead supervisor's workspace is closed before a new one opens, so restarts do not pile them up.
+func TestUpClosesLeftoverSupervisorWorkspaces(t *testing.T) {
+	t.Setenv("FLEET_HOME", t.TempDir())
+	srv := fake.New(t)
+	t.Setenv("HERDR_SOCKET_PATH", srv.Socket)
+	srv.AddWorkspace("wold", supervisorLabel)
+	srv.AddWorkspace("wmine", "somebody's own workspace")
+	if err := up(nil); err != nil {
+		t.Fatal(err)
+	}
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wold" {
+		t.Fatalf("closed = %v", cl)
+	}
+	if len(srv.Workspaces) != 1 {
+		t.Fatalf("workspaces = %v", srv.Workspaces)
+	}
+}
+
+func TestParseMemAvailable(t *testing.T) {
+	mb, ok := parseMemAvailableMB("MemTotal: 8000000 kB\nMemAvailable:    1536000 kB\n")
+	if !ok || mb != 1500 {
+		t.Fatalf("mb = %d, ok = %v", mb, ok)
+	}
+	if _, ok := parseMemAvailableMB("nothing here"); ok {
+		t.Fatal("parsed garbage")
+	}
+}

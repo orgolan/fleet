@@ -26,14 +26,17 @@ report its findings; do not try to fix the environment silently.
 fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--with-dirty] [--one-shot] [--keep] [--trust-repository] <name> [brief...] [-- agent-args...]
 fleet project trust <name>  (captain's decision) trust the project folder in Claude Code
 fleet up                     ensure the supervisor runs (spawn does this itself; toasts the captain on blocked / turn finished / exited)
-fleet status [--json]        tasks merged with live herdr status
+fleet status [--json]        tasks merged with live herdr status; GIT is +commits-ahead ~uncommitted-paths
+fleet wait [--all] [--timeout 30m] [name...]   block until crewmates settle (no polling loops of your own)
+fleet merge <name> [--test "cmd"] [--keep-running]   land its branch on the base and stop it (aborts cleanly on conflict or failing test)
+fleet resume <name>... | --all   relaunch crewmates whose panes are gone (herdr restarted, agent crashed)
 fleet read <name> [--lines N]
-fleet result <name>          the report, live or as saved when it was stopped
+fleet result <name>          its .fleet/report.md if it wrote one, else live output, else what was saved when it was stopped
 fleet send <name> <text...>  refuses if the crewmate is blocked
 fleet keys <name> <key...>   answer a blocked prompt (enter, esc, ctrl+c)
 fleet focus <name>
 fleet stop <name> [--force]  remove worktree + workspace, mark stopped
-fleet project add <name> <path> [--base REF] | list | show <name> | note <name> <text...> | rm <name>
+fleet project add <name> <path> [--base REF] | list | show <name> | note <name> <text...> | agent-args <name> [args...|--clear] | rm <name>
 fleet prune [--older-than 7d] [--dry-run]   delete old stopped-task records; preview first
 fleet doctor | ping | events | tasks
 ```
@@ -74,8 +77,16 @@ prune with `--edit N` and `--rm N` (numbers are in `fleet project show`); if
    `fleet status`, and `fleet read <name>` for detail. Relay results plainly.
    If the supervisor toasts that a crewmate "may not have its brief", read its
    pane and resend with `fleet send`; do not resend blindly.
+   Long briefs are delivered as `.fleet/brief.md` in the crewmate's worktree (not
+   pasted), and it is told to leave its final report in `.fleet/report.md`; each
+   task also owns a block of ten ports (`FLEET_PORT_BASE`, in the brief file) so
+   dev servers and wp-env stacks do not collide. Finish alerts include the
+   worktree's state (commits ahead, uncommitted paths, report or not): a crewmate
+   that "finished" with uncommitted paths or no commits has not finished.
 6. **Follow up.** Use `fleet send <name> ...` for corrections or next steps.
-7. **Wrap up.** Finished crewmates dispose themselves: when their branch is
+7. **Wrap up.** To land a finished crewmate's work use `fleet merge <name>` (add
+   `--test "<project test command>"` so a failing merge aborts); it stops the
+   crewmate and its wp-env too. Finished crewmates also dispose themselves: when their branch is
    merged into its base (the captain merges), or right after their first turn if
    spawned with `--one-shot`. Use `--one-shot` for reviews, investigations and
    reports (tasks that end in a report, not commits); use `--keep` for a crewmate

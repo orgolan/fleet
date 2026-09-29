@@ -472,9 +472,16 @@ func (s *Supervisor) audit() {
 		return
 	}
 	endedWS := map[string]string{} // workspace id -> task name
+	knownRepos, liveRepos := map[string]bool{}, map[string]bool{}
 	for _, t := range ts {
 		if ended(t) && t.WorkspaceID != "" {
 			endedWS[t.WorkspaceID] = t.Name
+		}
+		if t.Repo != "" {
+			knownRepos[t.Repo] = true
+			if !ended(t) {
+				liveRepos[t.Repo] = true
+			}
 		}
 	}
 	open := map[string]bool{}
@@ -485,6 +492,8 @@ func (s *Supervisor) audit() {
 			why = "it still belongs to " + task + ", which fleet has stopped or lost"
 		} else if s.SupLabel != "" && s.SelfWS != "" && w.Label == s.SupLabel && w.WorkspaceID != s.SelfWS {
 			why = "it is an extra supervisor workspace; this supervisor runs in " + s.SelfWS
+		} else if wt := w.Worktree; wt != nil && !wt.IsLinked && knownRepos[wt.CheckoutPath] && !liveRepos[wt.CheckoutPath] {
+			why = "herdr opens a workspace on a repo's main checkout when crewmates are created there, and none is using " + wt.CheckoutPath + " now"
 		}
 		if why == "" {
 			delete(s.sightings, w.WorkspaceID)

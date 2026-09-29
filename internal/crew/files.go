@@ -50,6 +50,12 @@ func briefFileContent(t ledger.Task) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Task brief: %s\n\n", t.Name)
 	b.WriteString(t.Brief)
+	if t.PortBase > 0 {
+		fmt.Fprintf(&b, "\n\n---\n## Ports\nThis task owns ports %d-%d (FLEET_PORT_BASE=%d). Use only these for anything you serve, "+
+			"because other crewmates run their own servers at the same time: for wp-env write a gitignored "+
+			".wp-env.override.json with {\"port\": %d, \"testsPort\": %d}; for a dev server use %d.\n",
+			t.PortBase, t.PortBase+portBlock-1, t.PortBase, t.PortBase, t.PortBase+1, t.PortBase)
+	}
 	b.WriteString("\n\n---\nWhen you finish, write your final report to .fleet/report.md in this worktree " +
 		"(the .fleet/ directory is not tracked by git).\n")
 	return b.String()

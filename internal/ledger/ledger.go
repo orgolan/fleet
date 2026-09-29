@@ -20,11 +20,12 @@ type Task struct {
 	Repo        string    `json:"repo"`
 	Project     string    `json:"project,omitempty"` // registered project it was spawned for, if any
 	Branch      string    `json:"branch"`
-	Base        string    `json:"base,omitempty"`     // ref the branch was cut from and will merge back into
-	BaseRev     string    `json:"base_rev,omitempty"` // commit Base pointed at when the crewmate was spawned
-	OneShot     bool      `json:"one_shot,omitempty"` // report-style task: dispose when its first turn finishes
-	Keep        bool      `json:"keep,omitempty"`     // never dispose automatically
-	Mate        string    `json:"mate,omitempty"`     // pane of the first mate that spawned it; the supervisor prompts it
+	Base        string    `json:"base,omitempty"`      // ref the branch was cut from and will merge back into
+	BaseRev     string    `json:"base_rev,omitempty"`  // commit Base pointed at when the crewmate was spawned
+	OneShot     bool      `json:"one_shot,omitempty"`  // report-style task: dispose when its first turn finishes
+	Keep        bool      `json:"keep,omitempty"`      // never dispose automatically
+	PortBase    int       `json:"port_base,omitempty"` // first of ten ports reserved for this task's servers
+	Mate        string    `json:"mate,omitempty"`      // pane of the first mate that spawned it; the supervisor prompts it
 	Worktree    string    `json:"worktree"`
 	WorkspaceID string    `json:"workspace_id"`
 	PaneID      string    `json:"pane_id"`

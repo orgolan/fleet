@@ -49,6 +49,9 @@ func Status(c *herdr.Client) ([]Row, error) {
 		if a, ok := live[t.PaneID]; ok {
 			r.Live = string(a.Status)
 		}
+		if t.State != "stopped" && t.State != "exited" {
+			r.Git = Git(t).Short()
+		}
 		switch {
 		case t.BriefSent:
 			r.Brief = "sent"
@@ -117,6 +120,9 @@ func Stop(c *herdr.Client, name string, force bool) error {
 	if err := c.WorktreeRemove(t.WorkspaceID, force); err != nil {
 		// Git no longer knows the worktree (removed by hand, or a removal that failed
 		// part way): there is no work left to protect, so just close the workspace.
+		if strings.Contains(err.Error(), "not_linked_worktree") {
+			return stopUnmanaged(c, t, force, restore, err)
+		}
 		if strings.Contains(err.Error(), "is not a working tree") {
 			if cerr := c.WorkspaceClose(t.WorkspaceID); cerr != nil {
 				return restore(fmt.Errorf("%w (and closing its workspace failed: %v)", err, cerr))
@@ -129,6 +135,33 @@ func Stop(c *herdr.Client, name string, force bool) error {
 			return fmt.Errorf("%w\nif the worktree is dirty or unmerged, commit/merge the work, or rerun with --force to DISCARD uncommitted work in %s; otherwise fix the error above", err, t.Worktree)
 		}
 		return err
+	}
+	return nil
+}
+
+// stopUnmanaged stops a crewmate whose workspace herdr did not create as a worktree
+// checkout (one relaunched by `fleet resume`), so worktree.remove refuses it. It
+// keeps herdr's safety rules: without force the worktree must be clean and its
+// commits merged. The workspace is closed first (ending the agent), then git
+// removes the worktree.
+func stopUnmanaged(c *herdr.Client, t ledger.Task, force bool, restore func(error) error, cause error) error {
+	if !force {
+		if clean, err := Clean(t.Worktree); err != nil || !clean {
+			return restore(fmt.Errorf("%s has uncommitted changes in %s; commit or discard them, or rerun with --force to DISCARD them", t.Name, t.Worktree))
+		}
+		if merged, _ := Merged(t); !merged && Git(t).Ahead != 0 {
+			return restore(fmt.Errorf("%s has commits that are not merged into %s; `fleet merge %s`, or rerun with --force to DISCARD them", t.Name, t.Base, t.Name))
+		}
+	}
+	if err := c.WorkspaceClose(t.WorkspaceID); err != nil {
+		return restore(fmt.Errorf("%w (and closing its workspace failed: %v)", cause, err))
+	}
+	args := []string{"-C", t.Repo, "worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	if out, err := exec.Command("git", append(args, t.Worktree)...).CombinedOutput(); err != nil {
+		return restore(fmt.Errorf("workspace closed, but removing the worktree failed: %s", firstLine(strings.TrimSpace(string(out)))))
 	}
 	return nil
 }

@@ -38,6 +38,22 @@ that pane is idle or done, on each alert and each poll, so the first mate hears
 about finished, blocked and exited crewmates without polling. Tasks spawned
 before this field existed have no mate and only toast.
 
+## Briefs, reports and ports
+
+A brief of more than 300 characters, or with a newline, is written to
+`.fleet/brief.md` in the worktree (excluded through the worktree's
+`info/exclude`), and only a short prompt pointing at it is typed into the agent.
+Pasting long text made Claude Code show a `[Pasted text]` placeholder that could
+sit unsubmitted and could not be matched against the screen. The prompt also asks
+for a final report in `.fleet/report.md`; `fleet result` prefers it and `fleet
+stop` saves it. Each task reserves ten ports (`port_base`, from 8900 up, released
+when the task stops) and the brief file says so.
+
+A finished turn is reported with `crew.Git` (commits ahead of base, uncommitted
+paths, last commit, report present). If the output carries tool-outage phrases the
+supervisor nudges the crewmate once after 90s if it is still idle, at most twice
+per task.
+
 ## Audit of leftover workspaces
 
 At start and every `AuditEvery` polls (15, about five minutes) the supervisor
