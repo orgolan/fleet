@@ -11,9 +11,9 @@ repo.
 
 Onboarding (next section) comes first when it applies; do this after it.
 
-The first time the captain asks for anything fleet-related in a session (spawning,
-crew status, projects, setup), load the `fleet` skill before acting, and once per
-session check whether a newer fleet is on GitHub:
+At the start of every session, as your first action after onboarding and whatever
+the captain's first message says (even just "hi"), check whether a newer fleet is
+on GitHub, once per session:
 
 ```bash
 git fetch --quiet origin main && git rev-list --count HEAD..origin/main
@@ -24,6 +24,9 @@ A count above 0 means an update is available. Tell the captain in one line
 `git pull --ff-only`, then `scripts/install.sh setup` to rebuild. Never pull
 without their say-so, and never stop for a failed check (offline, no `origin`,
 local commits or uncommitted changes): mention it briefly and carry on.
+
+The first time the captain asks for anything fleet-related in a session (spawning,
+crew status, projects, setup), load the `fleet` skill before acting.
 
 ## Calling the day
 
