@@ -26,10 +26,16 @@ func Deliver(c *herdr.Client, name string, wait, block bool) error {
 		if t.BriefSent || t.Brief == "" {
 			return nil
 		}
+		text := PromptText(t)
+		if text != t.Brief {
+			if err := writeBriefFile(t); err != nil {
+				return fmt.Errorf("write brief file: %w", err)
+			}
+		}
 		if wait {
-			err = promptWhenReady(c, name, t.Brief)
+			err = promptWhenReady(c, name, text)
 		} else {
-			err = c.AgentPrompt(name, t.Brief)
+			err = c.AgentPrompt(name, text)
 		}
 		var he *herdr.Error
 		if errors.As(err, &he) && he.Code == "agent_blocked" {

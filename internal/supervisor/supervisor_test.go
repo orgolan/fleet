@@ -475,3 +475,54 @@ func TestAuditIgnoresWorkspaceThatGoesAway(t *testing.T) {
 		t.Fatalf("notifications = %v", n)
 	}
 }
+
+// --- finish alerts carry the worktree's git state ---
+
+func TestFinishedAlertShowsUncommittedWork(t *testing.T) {
+	repo, wt, baseRev := crewRepo(t)
+	os.WriteFile(wt+"/wip.txt", []byte("w"), 0o644)
+	task := disposeTask(repo, wt, baseRev)
+	task.Keep, task.Mate = true, "w:p9"
+	srv, _ := setup(t, task)
+	srv.SetAgent("mate", "w:p9", "idle", "")
+	srv.SetAgent("x", "w:p1", "working", "")
+	eventually(t, "state working", func() bool { got, _ := ledger.Load("x"); return got.State == "working" })
+	srv.SetAgent("x", "w:p1", "done", "all finished")
+	srv.Emit("pane.agent_status_changed", "w:p1", map[string]any{"workspace_id": "w", "agent_status": "done"})
+	eventually(t, "finished alert", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "finished a turn with uncommitted changes")
+	})
+	eventually(t, "mate told the git state", func() bool {
+		p, _ := srv.Snapshot()
+		return len(p) == 1 && strings.Contains(p[0], "1 commit(s) ahead of main") && strings.Contains(p[0], "1 UNCOMMITTED")
+	})
+}
+
+// A turn that ended because a tool was down gets one nudge once it may be back.
+func TestToolOutageTurnIsNudgedOnce(t *testing.T) {
+	task := ledger.Task{Name: "o1", Kind: "claude", PaneID: "w:p2", Brief: "x", BriefSent: true, Keep: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.NudgeAfter = 80 * time.Millisecond })
+	srv.SetAgent("o1", "w:p2", "working", "")
+	eventually(t, "state working", func() bool { got, _ := ledger.Load("o1"); return got.State == "working" })
+	srv.SetAgent("o1", "w:p2", "done", "I couldn't finish: Bash is still failing on the classifier")
+	srv.Emit("pane.agent_status_changed", "w:p2", map[string]any{"workspace_id": "w", "agent_status": "done"})
+	eventually(t, "nudged", func() bool {
+		p, _ := srv.Snapshot()
+		return len(p) == 1 && strings.HasPrefix(p[0], "o1: The tool problem may be over")
+	})
+}
+
+func TestNormalFinishIsNotNudged(t *testing.T) {
+	task := ledger.Task{Name: "o2", Kind: "claude", PaneID: "w:p2", Brief: "x", BriefSent: true, Keep: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.NudgeAfter = 50 * time.Millisecond })
+	srv.SetAgent("o2", "w:p2", "working", "")
+	eventually(t, "state working", func() bool { got, _ := ledger.Load("o2"); return got.State == "working" })
+	srv.SetAgent("o2", "w:p2", "done", "all done, merged and verified")
+	srv.Emit("pane.agent_status_changed", "w:p2", map[string]any{"workspace_id": "w", "agent_status": "done"})
+	eventually(t, "finished alert", func() bool { _, n := srv.Snapshot(); return len(n) == 1 })
+	time.Sleep(250 * time.Millisecond)
+	if p, _ := srv.Snapshot(); len(p) != 0 {
+		t.Fatalf("unexpected prompts: %v", p)
+	}
+}

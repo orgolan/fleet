@@ -37,9 +37,13 @@ type Supervisor struct {
 	// label. AuditEvery is the number of polls between audits, zero disables them.
 	SelfWS, SupLabel string
 	AuditEvery       int
-	polls            int
-	sightings        map[string]int // workspace id -> audits it looked orphaned in a row
-	reported         map[string]bool
+	// NudgeAfter is how long to wait before nudging a crewmate whose turn looks cut
+	// short by a tool outage; zero disables nudging. At most two nudges per task.
+	NudgeAfter time.Duration
+	nudges     map[string]int
+	polls      int
+	sightings  map[string]int // workspace id -> audits it looked orphaned in a row
+	reported   map[string]bool
 
 	last      map[string]herdr.AgentStatus // task name -> last handled status
 	seen      map[string]bool              // task name -> was ever observed live
@@ -51,7 +55,7 @@ type Supervisor struct {
 
 func New(c *herdr.Client, l *log.Logger) *Supervisor {
 	return &Supervisor{
-		C: c, Log: l, Poll: 20 * time.Second, AuditEvery: 15, sightings: map[string]int{}, reported: map[string]bool{}, Settle: 4 * time.Second, Verify: 25 * time.Second,
+		C: c, Log: l, Poll: 20 * time.Second, AuditEvery: 15, NudgeAfter: 90 * time.Second, nudges: map[string]int{}, sightings: map[string]int{}, reported: map[string]bool{}, Settle: 4 * time.Second, Verify: 25 * time.Second,
 		last: map[string]herdr.AgentStatus{}, seen: map[string]bool{},
 		watches: map[string]context.CancelFunc{}, noDispose: map[string]bool{}, pending: map[string][]string{},
 		status: make(chan herdr.AgentStatusChanged, 64),
@@ -251,7 +255,7 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 		s.setState(t.Name, string(st))
 		if prev == herdr.Working {
 			if !s.maybeDispose(t, st, true) {
-				s.alert(t, "fleet: "+t.Name+" finished a turn", s.tail(t.Name), "done")
+				s.finished(t)
 			}
 			return
 		}
@@ -259,6 +263,68 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 	default:
 		s.setState(t.Name, string(st))
 	}
+}
+
+// outageHints are phrases a crewmate's output shows when a tool it needs (the
+// shell, most often) was failing, so its turn ended without the work being done.
+var outageHints = []string{"no verdict", "classifier", "when bash recovers", "bash is still failing", "bash is back", "tool is unavailable"}
+
+// finished reports a finished turn with what the worktree holds, so an agent that
+// stopped with nothing committed is not mistaken for one that is done. When the
+// output suggests a tool outage cut the turn short, it also nudges the crewmate
+// once the outage has had time to pass.
+func (s *Supervisor) finished(t ledger.Task) {
+	title := "fleet: " + t.Name + " finished a turn"
+	g := crew.Git(t)
+	if g.Dirty > 0 {
+		title += " with uncommitted changes"
+	}
+	body := s.tail(t.Name)
+	if info := g.Long(t.Base); info != "" {
+		body = info + "\n" + body
+	}
+	outage := s.NudgeAfter > 0 && s.nudges[t.Name] < 2 && hintsOutage(s.recent(t.Name, 40))
+	if outage {
+		s.nudges[t.Name]++
+		body += "\nThe output looks like a tool outage cut its turn short; fleet will nudge it once in " + s.NudgeAfter.String() + "."
+		go s.nudge(t)
+	}
+	s.alert(t, title, body, "done")
+}
+
+func hintsOutage(text string) bool {
+	low := strings.ToLower(text)
+	for _, h := range outageHints {
+		if strings.Contains(low, h) {
+			return true
+		}
+	}
+	return false
+}
+
+// nudge asks a crewmate that is still idle after an apparent tool outage to carry on.
+func (s *Supervisor) nudge(t ledger.Task) {
+	sleep(s.ctx, s.NudgeAfter)
+	if s.ctx.Err() != nil || !s.stillReady(t.PaneID) {
+		return
+	}
+	if cur, err := ledger.Load(t.Name); err != nil || ended(cur) {
+		return
+	}
+	if err := s.C.AgentPrompt(t.Name, "The tool problem may be over: retry the step that failed and carry on until the task is complete, then update .fleet/report.md."); err != nil {
+		s.Log.Printf("%s: nudge: %v", t.Name, err)
+		return
+	}
+	s.Log.Printf("%s: nudged after a suspected tool outage", t.Name)
+}
+
+// recent returns an agent's last n lines of output, or "".
+func (s *Supervisor) recent(target string, n int) string {
+	txt, err := s.C.AgentRead(target, n)
+	if err != nil {
+		return ""
+	}
+	return txt
 }
 
 // deliver sends the brief. afterBlock is true when the agent has just left a
@@ -559,7 +625,7 @@ func (s *Supervisor) briefVisible(t ledger.Task) bool {
 	if inputPending(txt) {
 		return false
 	}
-	return strings.Contains(squash(txt), snippet(t.Brief)) || strings.Contains(txt, "Pasted text")
+	return strings.Contains(squash(txt), snippet(crew.PromptText(t))) || strings.Contains(txt, "Pasted text")
 }
 
 // inputPending reports whether the agent's input box, the last "❯" line, still

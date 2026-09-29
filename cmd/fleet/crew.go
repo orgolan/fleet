@@ -224,9 +224,9 @@ func writeStatus(w *os.File, rows []crew.Row, asJSON bool) error {
 		return printJSON(rows)
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tKIND\tSTATE\tLIVE\tWORKSPACE\tPANE\tBRIEF")
+	fmt.Fprintln(tw, "NAME\tKIND\tSTATE\tLIVE\tGIT\tWORKSPACE\tPANE\tBRIEF")
 	for _, r := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, r.Kind, r.State, r.Live, r.WorkspaceID, r.PaneID, r.Brief)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, r.Kind, r.State, r.Live, r.Git, r.WorkspaceID, r.PaneID, r.Brief)
 	}
 	return tw.Flush()
 }

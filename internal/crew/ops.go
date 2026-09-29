@@ -23,6 +23,7 @@ type Row struct {
 	WorkspaceID string `json:"workspace_id"`
 	PaneID      string `json:"pane_id"`
 	Brief       string `json:"brief"` // sent, pending, or "-" when there was none
+	Git         string `json:"git"`   // "+N ~M": commits ahead of base, uncommitted paths; "-" when unknown
 }
 
 // Status merges every ledger task with the live agent list, matching by pane.
@@ -41,7 +42,7 @@ func Status(c *herdr.Client) ([]Row, error) {
 	}
 	rows := make([]Row, 0, len(ts))
 	for _, t := range ts {
-		r := Row{Name: t.Name, Kind: t.Kind, State: t.State, Live: "-", WorkspaceID: t.WorkspaceID, PaneID: t.PaneID, Brief: "-"}
+		r := Row{Name: t.Name, Kind: t.Kind, State: t.State, Live: "-", WorkspaceID: t.WorkspaceID, PaneID: t.PaneID, Brief: "-", Git: "-"}
 		if r.State == "" {
 			r.State = "-"
 		}
@@ -84,7 +85,11 @@ func Stop(c *herdr.Client, name string, force bool) error {
 	}
 	// Keep the crewmate's last output: the pane, and the report in it, is about to go.
 	// Best effort; an agent that is busy or already gone cannot be read.
-	if txt, err := c.AgentRead(name, resultLines); err == nil && strings.TrimSpace(txt) != "" {
+	txt, rerr := c.AgentRead(name, resultLines)
+	if rep, ok := ReadReport(t.Worktree); ok {
+		txt, rerr = rep, nil // the report the crewmate wrote beats a scrape of its terminal
+	}
+	if rerr == nil && strings.TrimSpace(txt) != "" {
 		if err := ledger.SaveResult(name, txt); err != nil {
 			fmt.Fprintf(os.Stderr, "fleet: warning: could not save %s's output: %v\n", name, err)
 		}
@@ -151,8 +156,12 @@ const resultLines = 400
 // Result returns a crewmate's recent output: live when it can be read, else the
 // copy saved when it was stopped. The second value says which one it was.
 func Result(c *herdr.Client, name string, lines int) (text, source string, err error) {
-	if _, lerr := ledger.Load(name); lerr != nil {
+	t, lerr := ledger.Load(name)
+	if lerr != nil {
 		return "", "", fmt.Errorf("no such task %q: %w", name, lerr)
+	}
+	if rep, ok := ReadReport(t.Worktree); ok {
+		return rep, "report file (.fleet/report.md)", nil
 	}
 	live, rerr := c.AgentRead(name, lines)
 	if rerr == nil {
