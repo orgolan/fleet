@@ -89,6 +89,8 @@ The crewmate has no memory of this conversation. The brief must be self-containe
 - Relevant context: conventions, commands to build/test, links or paths.
 - Definition of done: tests that must pass, what to commit on its branch.
 - Constraints: no pushing, no force-push, no edits outside the worktree.
+  Never let a crewmate set or guess a git identity: if commits fail for lack of one,
+  it should stop and report, and you tell the captain.
 - What to report at the end: a short summary of changes and anything unresolved.
 
 ## Blocked crewmates

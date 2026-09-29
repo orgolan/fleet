@@ -99,6 +99,7 @@ func New(name string) (Project, error) {
 	if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main").CombinedOutput(); err != nil {
 		return fail(fmt.Errorf("git init: %v: %s", err, strings.TrimSpace(string(out))))
 	}
+	setIdentity(repo)
 	commit := func(extra ...string) ([]byte, error) {
 		args := append(append([]string{"-C", repo}, extra...), "commit", "-q", "--allow-empty", "-m", "Initial commit")
 		return exec.Command("git", args...).CombinedOutput()
@@ -220,4 +221,20 @@ func Remove(name string, force bool) error {
 		return fmt.Errorf("project %q owns its repo at %s; removing it would delete that work: move the repo out first, or use --force", name, p.Path)
 	}
 	return os.RemoveAll(dir)
+}
+
+// setIdentity gives a repo fleet created its own git identity, copied from the one
+// the captain has configured. Without one, crewmates would guess a name to commit
+// under. If the captain has none at all, use a plainly generic one rather than a guess.
+func setIdentity(repo string) {
+	for _, k := range []struct{ key, fallback string }{{"user.name", "fleet crew"}, {"user.email", "fleet@localhost"}} {
+		if v, _ := exec.Command("git", "-C", repo, "config", "--get", k.key).Output(); strings.TrimSpace(string(v)) != "" {
+			continue // the new repo already resolves one (e.g. a global config)
+		}
+		val := k.fallback
+		if v, _ := exec.Command("git", "config", "--get", k.key).Output(); strings.TrimSpace(string(v)) != "" {
+			val = strings.TrimSpace(string(v)) // from the captain's current directory (local, then global)
+		}
+		exec.Command("git", "-C", repo, "config", k.key, val).Run()
+	}
 }

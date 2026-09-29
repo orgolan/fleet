@@ -105,6 +105,9 @@ if [ -d "$PROJ" ]; then
 			n=$((n + 1))
 			if git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
 				ok "project $name -> $path"
+				if [ -z "$(git -C "$path" config --get user.name)" ] || [ -z "$(git -C "$path" config --get user.email)" ]; then
+					warn "$name has no git identity, so crewmates may guess one to commit under" "git -C $path config user.name \"Your Name\" && git -C $path config user.email you@example.com"
+				fi
 				# leftover = fleet/* branches that no worktree has checked out (live crewmates use theirs)
 				inuse=$(git -C "$path" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')
 				br=$(git -C "$path" branch --list 'fleet/*' --format='%(refname:short)' | grep -vxF -e "$inuse" -e '' 2>/dev/null | wc -l)
