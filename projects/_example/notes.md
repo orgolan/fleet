@@ -1,8 +1,11 @@
 # example
 
-Notes for the first mate about this project. `fleet spawn --project <name>`
-includes these in the crewmate's brief.
+Notes for the first mate. Conventions are always sent to crewmates; only the newest
+log entries are. Manage them with `fleet project note`.
 
+## Conventions
 - Build/test: `go test ./...`
-- Conventions: small commits, no pushing from crewmates.
-- Gotcha: the `legacy/` directory is generated; do not edit it.
+- Small commits; crewmates never push.
+
+## Log
+- 2026-01-01: the `legacy/` directory is generated; do not edit it.

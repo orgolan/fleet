@@ -16,6 +16,7 @@ type Task struct {
 	Name        string    `json:"name"`
 	Kind        string    `json:"kind"`
 	Repo        string    `json:"repo"`
+	Project     string    `json:"project,omitempty"` // registered project it was spawned for, if any
 	Branch      string    `json:"branch"`
 	Worktree    string    `json:"worktree"`
 	WorkspaceID string    `json:"workspace_id"`

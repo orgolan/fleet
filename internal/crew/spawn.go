@@ -19,15 +19,16 @@ var nameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // Spec describes one crewmate.
 type Spec struct {
-	Name   string   // unique live agent name
-	Kind   string   // herdr agent kind: claude, codex, ...
-	Repo   string   // path inside the git repo to work on
-	Branch string   // defaults to fleet/<name>
-	Base   string   // optional base ref
-	Brief  string   // initial prompt; empty starts the agent idle
-	Args   []string // native agent arguments
-	Trust  bool     // pass trust_repository for the worktree request
-	Dirty  bool     // copy the repo's uncommitted changes into the new worktree
+	Name    string   // unique live agent name
+	Kind    string   // herdr agent kind: claude, codex, ...
+	Repo    string   // path inside the git repo to work on
+	Project string   // registered project name, recorded on the task
+	Branch  string   // defaults to fleet/<name>
+	Base    string   // optional base ref
+	Brief   string   // initial prompt; empty starts the agent idle
+	Args    []string // native agent arguments
+	Trust   bool     // pass trust_repository for the worktree request
+	Dirty   bool     // copy the repo's uncommitted changes into the new worktree
 }
 
 // Spawn creates the worktree and workspace, starts the agent and sends the brief.
@@ -62,7 +63,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		return zero, fmt.Errorf("create worktree: %w", err)
 	}
 	t := ledger.Task{
-		Name: s.Name, Kind: s.Kind, Repo: repo, Branch: s.Branch, Worktree: wt.Worktree.Path,
+		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, Branch: s.Branch, Worktree: wt.Worktree.Path,
 		WorkspaceID: wt.Workspace.WorkspaceID, PaneID: wt.RootPane.PaneID,
 		Brief: s.Brief, CreatedAt: time.Now().UTC(),
 	}

@@ -159,8 +159,7 @@ func register(name, path, base string) (Project, error) {
 	if err := os.WriteFile(filepath.Join(dir, "project.json"), append(b, '\n'), 0o644); err != nil {
 		return zero, err
 	}
-	notes := fmt.Sprintf("# %s\n\nNotes for the first mate: conventions, build/test commands, gotchas, past outcomes.\n", name)
-	return p, os.WriteFile(filepath.Join(dir, "notes.md"), []byte(notes), 0o644)
+	return p, os.WriteFile(filepath.Join(dir, "notes.md"), []byte(newNotes(name)), 0o644)
 }
 
 // Get loads one project.
@@ -206,34 +205,6 @@ func List() ([]Project, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
-}
-
-// Notes returns the project's notes.md ("" if none).
-func Notes(name string) (string, error) {
-	dir, err := entryDir(name)
-	if err != nil {
-		return "", err
-	}
-	b, err := os.ReadFile(filepath.Join(dir, "notes.md"))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	return string(b), err
-}
-
-// AddNote appends a dated bullet to the project's notes.
-func AddNote(name, text string) error {
-	if _, err := Get(name); err != nil {
-		return err
-	}
-	dir, _ := entryDir(name)
-	f, err := os.OpenFile(filepath.Join(dir, "notes.md"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "- %s: %s\n", time.Now().Format("2006-01-02"), strings.TrimSpace(text))
-	return err
 }
 
 // Remove unregisters a project and deletes its notes. A repo registered with

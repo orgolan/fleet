@@ -83,15 +83,19 @@ func applyProject(spec *crew.Spec, name string) error {
 		return err
 	}
 	spec.Repo = p.Path
+	spec.Project = name
 	if spec.Base == "" {
 		spec.Base = p.Base
 	}
-	notes, err := projects.Notes(name)
+	nf, err := projects.LoadNotes(name)
 	if err != nil {
 		return err
 	}
-	if notes = strings.TrimSpace(notes); notes != "" && spec.Brief != "" {
-		spec.Brief += "\n\nProject notes (" + name + "):\n" + notes
+	if n := nf.Size(); n > projects.WarnChars {
+		fmt.Fprintf(os.Stderr, "fleet: warning: %s's notes are %d characters; trim them with `fleet project show %s` and `fleet project note %s --rm N`\n", name, n, name, name)
+	}
+	if notes := nf.Brief(); notes != "" && spec.Brief != "" {
+		spec.Brief += "\n\n" + notes
 	}
 	return nil
 }
@@ -201,6 +205,9 @@ func stop(args []string) error {
 		return err
 	}
 	fmt.Printf("stopped %s\n", pos[0])
+	if t, err := ledger.Load(pos[0]); err == nil && t.Project != "" {
+		fmt.Printf("its report is kept: fleet result %s\nrecord anything the next crewmate should know: fleet project note %s \"...\"\n", pos[0], t.Project)
+	}
 	return nil
 }
 

@@ -40,12 +40,18 @@ fleet doctor | ping | events | tasks
 
 The captain's repos in scope are registered with `fleet project`. Run
 `fleet project list` at the start of a job, and `fleet project show <name>` for
-the notes on any project you are about to brief. Prefer `fleet spawn --project
-<name>`, which sets the repo and base and appends the project's notes to the
-brief. If the job names a repo that is not registered, ask the captain before
-adding it. After a crewmate finishes, record anything worth remembering with
-`fleet project note <name> "..."` (commands that work, gotchas, outcomes).
-Never write secrets into notes.
+the notes and past tasks of any project you are about to brief. Prefer
+`fleet spawn --project <name>`: it sets the repo and base, records the project on
+the task, and appends the conventions and recent log to the brief. If the job
+names a repo that is not registered, ask the captain before adding it.
+
+Notes have two sections. **Conventions** (`fleet project note <name> --conv "..."`)
+are stable facts such as build and test commands; keep them few. **Log**
+(`fleet project note <name> "..."`) are dated lessons; only the newest 10 reach a
+crewmate. After a crewmate finishes, read its report (`fleet result`) and record
+one line worth remembering: a command that works, a gotcha, an outcome. Fix or
+prune with `--edit N` and `--rm N` (numbers are in `fleet project show`); if
+`fleet` warns the notes are too long, trim them. Never write secrets into notes.
 
 ## Workflow
 

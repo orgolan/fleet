@@ -29,11 +29,14 @@ func TestAddListNotesRemove(t *testing.T) {
 	if _, err := Add("site", repo, ""); err == nil {
 		t.Fatal("duplicate add succeeded")
 	}
-	if err := AddNote("site", "run npm test"); err != nil {
+	nf, err := LoadNotes("site")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := Notes("site"); !strings.Contains(n, "run npm test") {
-		t.Fatalf("notes = %q", n)
+	nf.Add(Log, "run npm test")
+	nf.Save()
+	if nf, _ := LoadNotes("site"); len(nf.Entries()) != 1 || !strings.Contains(nf.Entries()[0].Text, "run npm test") {
+		t.Fatalf("entries = %+v", nf.Entries())
 	}
 	if ps, _ := List(); len(ps) != 1 || ps[0].Name != "site" {
 		t.Fatalf("List = %+v", ps)

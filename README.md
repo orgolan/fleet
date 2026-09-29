@@ -82,7 +82,7 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet events` | Stream herdr events (debugging). |
 | `fleet tasks` | List recorded tasks from the ledger. |
 | `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
-| `fleet project new\|clone\|add\|list\|show\|note\|rm` | Create, clone or register the repos in scope, with per-project notes (see Projects). |
+| `fleet project new\|clone\|add\|list\|show\|note\|rm` | Create, clone or register the repos in scope, and keep notes on them (see Projects). |
 | `fleet status [--json]` | Tasks merged with live herdr status. |
 | `fleet send <name> <text...>` | Prompt a crewmate. Refuses if it is blocked. |
 | `fleet read <name> [--lines N]` | Tail of a crewmate's output. |
@@ -104,8 +104,28 @@ Agent names must match `[a-z][a-z0-9_-]{0,31}` (herdr's rule).
 repos are in scope. `fleet project new` and `clone` also put the repo itself at
 `projects/<name>/repo`; `add` registers a repo that lives elsewhere. `rm` refuses
 to delete a repo that lives in `projects/` unless you pass `--force`.
-`fleet spawn --project <name>` uses the registered repo and base and appends the
-notes to the crewmate's brief, so the first mate and its crew share context.
+### Notes: the first mate's memory of a project
+
+`notes.md` has two sections of one-line entries, numbered across both:
+
+- **Conventions**: stable facts (build and test commands, rules). Always sent to crewmates.
+- **Log**: dated lessons and outcomes. Only the newest 10 are sent.
+
+```bash
+fleet project note myapp --conv "run go test ./... before finishing"
+fleet project note myapp "login redirect loops when the cookie is missing"   # dated log entry
+fleet project show myapp                    # record, numbered notes, and the project's tasks
+fleet project note myapp --edit 2 "..."     # replace note 2 (keeps its date)
+fleet project note myapp --rm 3
+```
+
+`fleet spawn --project <name>` uses the registered repo and base, records the
+project on the task, and appends the conventions and recent log to the
+crewmate's brief. Notes over 3000 characters trigger a warning to trim them.
+`fleet stop` reminds you to record what the next crewmate should know; the
+crewmate's report itself is kept (`fleet result`), and `fleet project show` lists
+the project's tasks from the ledger. Old flat notes files are migrated to the
+Log section the first time they are written.
 
 Only `projects/README.md` and `projects/_example/` are tracked; real entries are
 gitignored so your repo list stays local. The folder is `$FLEET_PROJECTS`, else

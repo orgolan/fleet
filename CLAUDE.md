@@ -31,8 +31,8 @@ or when `bin/fleet` does not exist or `fleet` is not on PATH.
    - `fleet project new <name>`: an empty git repo in `projects/<name>/repo`
    - `fleet project clone <name> <url>`: clone into `projects/<name>/repo`
    - `fleet project add <name> <path>`: use a repo they already have
-   Then add a line or two of notes: `fleet project note <name> "..."` (build
-   and test commands, conventions).
+   Then record build and test commands as conventions:
+   `fleet project note <name> --conv "..."`.
 5. **Hand over.** From here act as the first mate under the `fleet` skill:
    `fleet spawn --project <name> <task> "<brief>"`. Spawning starts the
    supervisor automatically.
