@@ -241,15 +241,8 @@ func (s *Supervisor) deliver(t ledger.Task) {
 }
 
 func (s *Supervisor) setState(name, state string) {
-	err := ledger.WithLock(name, false, func() error {
-		t, err := ledger.Load(name)
-		if err != nil || t.State == state {
-			return err
-		}
-		t.State = state
-		return ledger.Save(t)
-	})
-	if err != nil && !errors.Is(err, ledger.ErrLocked) {
+	err := ledger.Update(name, func(t *ledger.Task) { t.State = state })
+	if err != nil {
 		s.Log.Printf("%s: record state: %v", name, err)
 	}
 }

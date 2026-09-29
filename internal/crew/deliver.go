@@ -38,9 +38,10 @@ func Deliver(c *herdr.Client, name string, wait, block bool) error {
 		if err != nil {
 			return err
 		}
-		t.BriefSent = true
-		t.State = "working"
-		return ledger.Save(t)
+		return ledger.Update(name, func(t *ledger.Task) {
+			t.BriefSent = true
+			t.State = "working"
+		})
 	})
 }
 

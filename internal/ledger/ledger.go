@@ -98,9 +98,33 @@ func Load(name string) (Task, error) {
 // ErrLocked is returned by WithLock when block is false and another process holds the lock.
 var ErrLocked = errors.New("ledger: task is locked")
 
-// WithLock runs fn holding an exclusive per-task file lock, so the spawner and
-// the supervisor never act on the same task (e.g. send its brief) at once.
+// WithLock runs fn holding an exclusive per-task action lock, so the spawner
+// and the supervisor never act on the same task (e.g. send its brief) at once.
+// It can be held for a long time; record changes go through Update instead.
 func WithLock(name string, block bool, fn func() error) error {
+	return flock(name, ".lock", block, fn)
+}
+
+// Update applies fn to the stored task under a short read-modify-write lock and
+// saves the result if it changed. It never waits on WithLock, so a long brief
+// delivery cannot make state updates get lost, and concurrent updaters cannot
+// overwrite each other's fields.
+func Update(name string, fn func(*Task)) error {
+	return flock(name, ".rw", true, func() error {
+		t, err := Load(name)
+		if err != nil {
+			return err
+		}
+		before := t
+		fn(&t)
+		if t == before {
+			return nil
+		}
+		return Save(t)
+	})
+}
+
+func flock(name, suffix string, block bool, fn func() error) error {
 	p, err := path(name)
 	if err != nil {
 		return err
@@ -108,7 +132,7 @@ func WithLock(name string, block bool, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(p+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(p+suffix, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
