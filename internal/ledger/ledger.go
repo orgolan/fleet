@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -20,7 +21,10 @@ type Task struct {
 	WorkspaceID string    `json:"workspace_id"`
 	PaneID      string    `json:"pane_id"`
 	Brief       string    `json:"brief"`
+	BriefSent   bool      `json:"brief_sent"`
+	State       string    `json:"state,omitempty"` // last observed: working, idle, blocked, done, exited
 	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
 
 // Dir is $FLEET_HOME, else ~/.local/state/fleet.
@@ -65,11 +69,62 @@ func Save(t Task) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
+	t.UpdatedAt = time.Now().UTC()
 	b, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, append(b, '\n'), 0o644)
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
+}
+
+// Load reads one task.
+func Load(name string) (Task, error) {
+	var t Task
+	p, err := path(name)
+	if err != nil {
+		return t, err
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return t, err
+	}
+	return t, json.Unmarshal(b, &t)
+}
+
+// ErrLocked is returned by WithLock when block is false and another process holds the lock.
+var ErrLocked = errors.New("ledger: task is locked")
+
+// WithLock runs fn holding an exclusive per-task file lock, so the spawner and
+// the supervisor never act on the same task (e.g. send its brief) at once.
+func WithLock(name string, block bool, fn func() error) error {
+	p, err := path(name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(p+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	how := syscall.LOCK_EX
+	if !block {
+		how |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return ErrLocked
+		}
+		return err
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return fn()
 }
 
 // List returns all recorded tasks.
