@@ -26,6 +26,9 @@ commands:
   result     a crewmate's report, even after it was stopped: fleet result <name> [--lines N]
   keys       send keys to a crewmate, e.g. to answer a prompt: fleet keys <name> <key...>
   focus      focus a crewmate in the herdr UI: fleet focus <name>
+  wait       block until crewmates settle: fleet wait [--all] [--timeout 30m] [name...]
+  merge      land a finished crewmate's branch and stop it: fleet merge <name> [--test "cmd"] [--keep-running]
+  resume     relaunch crewmates whose panes are gone: fleet resume <name>... | --all
   stop       remove a crewmate's worktree and mark it stopped: fleet stop <name> [--force]
   prune      delete records of old stopped tasks: fleet prune [--older-than 7d] [--dry-run] [name...]
   supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
@@ -48,6 +51,9 @@ var commands = map[string]func(args []string) error{
 	"result":    result,
 	"keys":      keys,
 	"focus":     focus,
+	"wait":      wait,
+	"merge":     merge,
+	"resume":    resume,
 	"stop":      stop,
 	"prune":     prune,
 	"supervise": supervise,

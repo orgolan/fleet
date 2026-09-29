@@ -35,6 +35,7 @@ type Server struct {
 	DirtyWS       map[string]bool     // workspaces whose worktree.remove needs force
 	GoneWS        map[string]bool     // workspaces whose worktree git no longer knows
 	Closed        []string            // workspace.close targets, in order
+	Started       []string            // "<name> <kind> <args>" from agent.start, in order
 	openWS        []map[string]string // workspaces reported by workspace.list
 	Version       string              // ping version, "fake" if empty
 	subs          []*sub
@@ -123,6 +124,13 @@ func (s *Server) CloseWorkspace(id string) {
 		}
 	}
 	s.openWS = keep
+}
+
+// StartedAgents returns the agent.start calls seen so far.
+func (s *Server) StartedAgents() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.Started...)
 }
 
 // ClosedWorkspaces returns the workspace.close targets seen so far.
@@ -311,6 +319,17 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 			}
 		}
 		return map[string]any{"type": "worktree_removed", "workspace_id": p.WorkspaceID, "path": "", "forced": p.Force}, ""
+	case "agent.start":
+		var p struct {
+			Name   string
+			Kind   string
+			PaneID string `json:"pane_id"`
+			Args   []string
+		}
+		json.Unmarshal(raw, &p)
+		s.Started = append(s.Started, p.Name+" "+p.Kind+" "+strings.Join(p.Args, ","))
+		s.agents[p.PaneID] = &Agent{p.Name, p.PaneID, "idle", "", "w"}
+		return map[string]any{"type": "agent_started", "agent": map[string]any{"name": p.Name, "pane_id": p.PaneID}}, ""
 	case "workspace.list":
 		return map[string]any{"type": "workspace_list", "workspaces": s.openWS}, ""
 	case "workspace.close":
