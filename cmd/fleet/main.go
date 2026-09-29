@@ -4,11 +4,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
+	"fleet/internal/crew"
 	"fleet/internal/herdr"
+	"fleet/internal/ledger"
 )
 
 const usage = `usage: fleet <command>
@@ -16,6 +20,8 @@ const usage = `usage: fleet <command>
 commands:
   ping     check the herdr socket and print server version
   events   stream agent status changes (Ctrl+C to stop)
+  spawn    start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...]
+  tasks    list recorded tasks
 `
 
 func main() {
@@ -29,6 +35,10 @@ func main() {
 		err = ping()
 	case "events":
 		err = events()
+	case "spawn":
+		err = spawn(os.Args[2:])
+	case "tasks":
+		err = tasks()
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -78,4 +88,47 @@ func events() error {
 		fmt.Printf("%s %s\n", ev.Kind, ev.Data)
 	}
 	return <-errc
+}
+
+func spawn(args []string) error {
+	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
+	spec := crew.Spec{}
+	fs.StringVar(&spec.Kind, "kind", "claude", "herdr agent kind")
+	fs.StringVar(&spec.Repo, "repo", ".", "path inside the git repo")
+	fs.StringVar(&spec.Branch, "branch", "", "branch name (default fleet/<name>)")
+	fs.StringVar(&spec.Base, "base", "", "base ref for the new branch")
+	fs.BoolVar(&spec.Trust, "trust-repository", false, "grant per-request git trust (only for repos you verified)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: fleet spawn [flags] <name> [brief...]")
+	}
+	spec.Name = fs.Arg(0)
+	spec.Brief = strings.Join(fs.Args()[1:], " ")
+	t, err := crew.Spawn(herdr.New(), spec)
+	if err != nil {
+		if t.Name != "" {
+			printJSON(t)
+		}
+		return err
+	}
+	return printJSON(t)
+}
+
+func tasks() error {
+	ts, err := ledger.List()
+	if err != nil {
+		return err
+	}
+	for _, t := range ts {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", t.Name, t.Kind, t.WorkspaceID, t.PaneID, t.Worktree)
+	}
+	return nil
+}
+
+func printJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }
