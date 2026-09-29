@@ -25,19 +25,21 @@ herdr's socket API and event stream instead of tmux polling.
 - herdr >= 0.9, running; you must launch the first mate from inside a herdr pane
   (`HERDR_ENV=1`).
 - git.
-- Go 1.27+ to build from source. `make check-go` verifies it. If Go is not on
-  your PATH: `PATH=$HOME/.local/go/bin:$PATH make build`.
+- Go 1.27+ to build from source. `scripts/install.sh check-go` verifies it. It
+  uses `$GO`, then `go` on PATH, then `$HOME/.local/go/bin/go`.
 - Claude Code as the crewmate agent (default `--kind claude`).
 
 ## Quickstart
 
 ```bash
-make build                 # bin/fleet
-make install               # copies to ~/.local/bin (PREFIX=...) and links the skill
-fleet doctor               # environment checklist
+scripts/install.sh build          # bin/fleet
+scripts/install.sh                # install: build, copy to ~/.local/bin (PREFIX=...), link the skill
+fleet doctor                      # environment checklist
 ```
 
-`make install-skill` alone symlinks `skills/fleet` to `~/.claude/skills/fleet`
+`make build`, `make install`, etc. are optional wrappers around the same script
+(`scripts/install.sh uninstall` removes the binary and skill link only).
+`scripts/install.sh install-skill` alone symlinks `skills/fleet` to `~/.claude/skills/fleet`
 (it refuses to overwrite anything that is not a symlink). Then, from a Claude
 Code session inside herdr, ask it to run a crew, or drive it by hand:
 
@@ -123,7 +125,7 @@ Worktrees are created under `~/.herdr/worktrees` on branch `fleet/<name>`.
 ## Development
 
 ```bash
-make test                  # go vet + go test -race ./...
+scripts/install.sh test    # go vet + go test -race ./... (or: make test)
 ```
 
 Tests run without herdr against `internal/herdr/fake`, an in-process fake of the
