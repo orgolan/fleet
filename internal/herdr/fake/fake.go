@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -16,6 +17,7 @@ type Agent struct {
 	Pane   string
 	Status string
 	Screen string
+	WS     string // workspace id, "w" unless set with SetWorkspace
 }
 
 type Server struct {
@@ -25,6 +27,13 @@ type Server struct {
 	agents        map[string]*Agent // by pane
 	Prompts       []string          // "<name>: <text>", in order
 	Notifications []string          // titles, in order
+	Keys          []string          // "<target>: <key,key>" from agent.send_keys, in order
+	Focused       []string          // agent.focus targets, in order
+	Removed       []string          // "<workspace>" or "<workspace>!" (forced) from worktree.remove
+	Runs          []string          // "<pane>: <command>" typed via pane.send_input
+	Splits        []map[string]any  // pane.split params, in order
+	DirtyWS       map[string]bool   // workspaces whose worktree.remove needs force
+	Version       string            // ping version, "fake" if empty
 	subs          []*sub
 	ln            net.Listener
 }
@@ -66,7 +75,30 @@ func New(t *testing.T) *Server {
 func (s *Server) SetAgent(name, pane, status, screen string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.agents[pane] = &Agent{name, pane, status, screen}
+	ws := "w"
+	if old := s.agents[pane]; old != nil {
+		ws = old.WS
+	}
+	s.agents[pane] = &Agent{name, pane, status, screen, ws}
+}
+
+// SetWorkspace assigns the workspace id reported for the agent in a pane.
+func (s *Server) SetWorkspace(pane, ws string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a := s.agents[pane]; a != nil {
+		a.WS = ws
+	}
+}
+
+// SetDirty makes worktree.remove for a workspace fail unless forced.
+func (s *Server) SetDirty(ws string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.DirtyWS == nil {
+		s.DirtyWS = map[string]bool{}
+	}
+	s.DirtyWS[ws] = true
 }
 
 func (s *Server) RemoveAgent(pane string) {
@@ -77,10 +109,14 @@ func (s *Server) RemoveAgent(pane string) {
 
 // Emit sends an event to matching subscribers.
 func (s *Server) Emit(kind, pane string, data map[string]any) {
-	data["pane_id"] = pane
-	b, _ := json.Marshal(map[string]any{"event": kind, "data": data})
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.emitLocked(kind, pane, data)
+}
+
+func (s *Server) emitLocked(kind, pane string, data map[string]any) {
+	data["pane_id"] = pane
+	b, _ := json.Marshal(map[string]any{"event": kind, "data": data})
 	for _, sb := range s.subs {
 		if want, ok := sb.types[kind]; ok && (want == "" || want == pane) {
 			sb.conn.Write(append(b, '\n'))
@@ -88,10 +124,25 @@ func (s *Server) Emit(kind, pane string, data map[string]any) {
 	}
 }
 
+// Recorded returns copies of the non-prompt call logs.
+func (s *Server) Recorded() (keys, focused, removed, runs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := func(x []string) []string { return append([]string(nil), x...) }
+	return c(s.Keys), c(s.Focused), c(s.Removed), c(s.Runs)
+}
+
 func (s *Server) Snapshot() (prompts, notes []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.Prompts...), append([]string(nil), s.Notifications...)
+}
+
+func (s *Server) version() string {
+	if s.Version != "" {
+		return s.Version
+	}
+	return "fake"
 }
 
 func (s *Server) byName(name string) *Agent {
@@ -137,11 +188,11 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 	defer s.mu.Unlock()
 	switch method {
 	case "ping":
-		return map[string]any{"type": "pong", "version": "fake", "protocol": 22}, ""
+		return map[string]any{"type": "pong", "version": s.version(), "protocol": 22}, ""
 	case "agent.list":
 		var list []map[string]any
 		for _, a := range s.agents {
-			list = append(list, map[string]any{"agent": "claude", "agent_status": a.Status, "pane_id": a.Pane, "workspace_id": "w"})
+			list = append(list, map[string]any{"agent": "claude", "agent_status": a.Status, "pane_id": a.Pane, "workspace_id": a.WS})
 		}
 		return map[string]any{"type": "agent_list", "agents": list}, ""
 	case "agent.read":
@@ -165,6 +216,63 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 		s.Prompts = append(s.Prompts, a.Name+": "+p.Text)
 		a.Status = "working"
 		return map[string]any{"type": "agent_prompted"}, ""
+	case "agent.send_keys":
+		var p struct {
+			Target string
+			Keys   []string
+		}
+		json.Unmarshal(raw, &p)
+		a := s.byName(p.Target)
+		if a == nil {
+			return nil, "agent_not_found"
+		}
+		s.Keys = append(s.Keys, a.Name+": "+strings.Join(p.Keys, ","))
+		return map[string]any{"type": "ok"}, ""
+	case "agent.focus":
+		var p struct{ Target string }
+		json.Unmarshal(raw, &p)
+		a := s.byName(p.Target)
+		if a == nil {
+			return nil, "agent_not_found"
+		}
+		s.Focused = append(s.Focused, a.Name)
+		return map[string]any{"type": "ok"}, ""
+	case "worktree.remove":
+		var p struct {
+			WorkspaceID string `json:"workspace_id"`
+			Force       bool
+		}
+		json.Unmarshal(raw, &p)
+		if s.DirtyWS[p.WorkspaceID] && !p.Force {
+			return nil, "worktree_dirty"
+		}
+		rec := p.WorkspaceID
+		if p.Force {
+			rec += "!"
+		}
+		s.Removed = append(s.Removed, rec)
+		// Like herdr, removing the worktree closes its workspace's panes.
+		for pane, a := range s.agents {
+			if a.WS == p.WorkspaceID {
+				delete(s.agents, pane)
+				s.emitLocked("pane.closed", pane, map[string]any{"workspace_id": p.WorkspaceID})
+			}
+		}
+		return map[string]any{"type": "worktree_removed", "workspace_id": p.WorkspaceID, "path": "", "forced": p.Force}, ""
+	case "pane.split":
+		var p map[string]any
+		json.Unmarshal(raw, &p)
+		s.Splits = append(s.Splits, p)
+		return map[string]any{"type": "pane_info", "pane": map[string]any{"pane_id": "w:new", "workspace_id": "w", "tab_id": "w:t1"}}, ""
+	case "pane.send_input":
+		var p struct {
+			PaneID string `json:"pane_id"`
+			Text   string
+			Keys   []string
+		}
+		json.Unmarshal(raw, &p)
+		s.Runs = append(s.Runs, p.PaneID+": "+p.Text+" "+strings.Join(p.Keys, ","))
+		return map[string]any{"type": "ok"}, ""
 	case "notification.show":
 		var p struct{ Title string }
 		json.Unmarshal(raw, &p)

@@ -2,143 +2,72 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
-	"os/signal"
-	"strings"
-	"time"
-
-	"fleet/internal/crew"
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
-	"fleet/internal/supervisor"
 )
 
-const usage = `usage: fleet <command>
+const usage = `usage: fleet <command> [args]
 
 commands:
-  ping     check the herdr socket and print server version
-  events   stream agent status changes (Ctrl+C to stop)
-  spawn    start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...] [-- agent-args...]
-  tasks    list recorded tasks
+  ping       check the herdr socket and print server version
+  events     stream agent status changes (Ctrl+C to stop)
+  spawn      start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...] [-- agent-args...]
+  tasks      list recorded tasks
+  status     tasks merged with live herdr state: fleet status [--json]
+  send       prompt a crewmate (no wait): fleet send <name> <text...>
+  read       tail a crewmate's recent output: fleet read <name> [--lines N]
+  keys       send keys to a crewmate, e.g. to answer a prompt: fleet keys <name> <key...>
+  focus      focus a crewmate in the herdr UI: fleet focus <name>
+  stop       remove a crewmate's worktree and mark it stopped: fleet stop <name> [--force]
   supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
+  up         ensure a supervisor is running (in a background herdr pane)
+  doctor     check the environment
+  help       print this help
 `
+
+// commands maps each subcommand to its implementation.
+var commands = map[string]func(args []string) error{
+	"ping":      func([]string) error { return ping() },
+	"events":    func([]string) error { return events() },
+	"spawn":     spawn,
+	"tasks":     func([]string) error { return tasks() },
+	"status":    status,
+	"send":      send,
+	"read":      read,
+	"keys":      keys,
+	"focus":     focus,
+	"stop":      stop,
+	"supervise": supervise,
+	"up":        up,
+	"doctor":    doctor,
+}
 
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
 	}
-	var err error
-	switch os.Args[1] {
-	case "ping":
-		err = ping()
-	case "events":
-		err = events()
-	case "spawn":
-		err = spawn(os.Args[2:])
-	case "tasks":
-		err = tasks()
-	case "supervise":
-		err = supervise(os.Args[2:])
-	default:
-		fmt.Fprint(os.Stderr, usage)
+	name := os.Args[1]
+	switch name {
+	case "help", "-h", "--help":
+		fmt.Print(usage)
+		return
+	}
+	run, ok := commands[name]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "fleet: unknown command %q\n\n%s", name, usage)
 		os.Exit(2)
 	}
-	if err != nil {
+	err := run(os.Args[2:])
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+	default:
 		fmt.Fprintln(os.Stderr, "fleet:", err)
 		os.Exit(1)
 	}
-}
-
-func ping() error {
-	var p herdr.Ping
-	if err := herdr.New().Call("ping", nil, &p); err != nil {
-		return err
-	}
-	fmt.Printf("herdr %s (protocol %d) at %s\n", p.Version, p.Protocol, herdr.SocketPath())
-	return nil
-}
-
-func events() error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	c := herdr.New()
-	agents, err := c.Agents()
-	if err != nil {
-		return err
-	}
-	// Status events are per pane, so subscribe for each agent pane known now.
-	// TODO(supervisor): follow pane.agent_detected and resubscribe for new agents.
-	subs := []herdr.Sub{{"type": "pane.exited"}, {"type": "pane.agent_detected"}}
-	for _, a := range agents {
-		subs = append(subs, herdr.Sub{"type": "pane.agent_status_changed", "pane_id": a.PaneID})
-	}
-	evs, errc := c.Subscribe(ctx, subs...)
-	for ev := range evs {
-		if ev.Kind == "pane.agent_status_changed" {
-			var d herdr.AgentStatusChanged
-			if json.Unmarshal(ev.Data, &d) == nil {
-				agent := "-"
-				if d.Agent != nil {
-					agent = *d.Agent
-				}
-				fmt.Printf("%s %s %s\n", d.PaneID, agent, d.Status)
-				continue
-			}
-		}
-		fmt.Printf("%s %s\n", ev.Kind, ev.Data)
-	}
-	return <-errc
-}
-
-func spawn(args []string) error {
-	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
-	spec := crew.Spec{}
-	fs.StringVar(&spec.Kind, "kind", "claude", "herdr agent kind")
-	fs.StringVar(&spec.Repo, "repo", ".", "path inside the git repo")
-	fs.StringVar(&spec.Branch, "branch", "", "branch name (default fleet/<name>)")
-	fs.StringVar(&spec.Base, "base", "", "base ref for the new branch")
-	fs.BoolVar(&spec.Trust, "trust-repository", false, "grant per-request git trust (only for repos you verified)")
-	// Everything after a literal "--" is passed to the agent as native arguments.
-	for i, a := range args {
-		if a == "--" {
-			spec.Args = args[i+1:]
-			args = args[:i]
-			break
-		}
-	}
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: fleet spawn [flags] <name> [brief...] [-- agent-args...]")
-	}
-	spec.Name = fs.Arg(0)
-	spec.Brief = strings.Join(fs.Args()[1:], " ")
-	t, err := crew.Spawn(herdr.New(), spec)
-	if err != nil {
-		if t.Name != "" {
-			printJSON(t)
-		}
-		return err
-	}
-	return printJSON(t)
-}
-
-func tasks() error {
-	ts, err := ledger.List()
-	if err != nil {
-		return err
-	}
-	for _, t := range ts {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", t.Name, t.Kind, t.WorkspaceID, t.PaneID, t.Worktree)
-	}
-	return nil
 }
 
 func printJSON(v any) error {
@@ -147,21 +76,18 @@ func printJSON(v any) error {
 	return enc.Encode(v)
 }
 
-func supervise(args []string) error {
-	fs := flag.NewFlagSet("supervise", flag.ContinueOnError)
-	poll := fs.Duration("poll", 20*time.Second, "reconcile interval (safety net for missed events)")
-	if err := fs.Parse(args); err != nil {
-		return err
+// parseInterspersed parses flags that may appear before or after positional
+// arguments (fleet read NAME --lines 5), returning the positionals.
+func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return pos, nil
+		}
+		pos = append(pos, fs.Arg(0))
+		args = fs.Args()[1:]
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	s := supervisor.New(herdr.New(), log.New(os.Stderr, "", log.LstdFlags))
-	s.Poll = *poll
-	s.Log.Printf("supervising (state in %s)", stateDir())
-	return s.Run(ctx)
-}
-
-func stateDir() string {
-	d, _ := ledger.Dir()
-	return d
 }

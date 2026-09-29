@@ -123,12 +123,16 @@ func (s *Supervisor) taskByPane(pane string) (ledger.Task, bool) {
 		return ledger.Task{}, false
 	}
 	for _, t := range ts {
-		if t.PaneID == pane && t.State != "exited" {
+		if t.PaneID == pane && !ended(t) {
 			return t, true
 		}
 	}
 	return ledger.Task{}, false
 }
+
+// ended reports whether a task is finished for good: its pane is gone or the
+// captain stopped it, so it must not be watched, re-notified or resurrected.
+func ended(t ledger.Task) bool { return t.State == "exited" || t.State == "stopped" }
 
 // reconcile aligns watchers and state with what herdr and the ledger say now.
 func (s *Supervisor) reconcile(ctx context.Context) {
@@ -147,7 +151,7 @@ func (s *Supervisor) reconcile(ctx context.Context) {
 		return
 	}
 	for _, t := range ts {
-		if t.State == "exited" {
+		if ended(t) {
 			continue
 		}
 		if a, ok := live[t.PaneID]; ok {
@@ -190,6 +194,11 @@ func (s *Supervisor) onStatus(pane string, st herdr.AgentStatus) {
 func (s *Supervisor) exited(t ledger.Task) {
 	s.unwatch(t.PaneID)
 	delete(s.last, t.Name)
+	// The caller's copy may predate `fleet stop`, which marks the task stopped
+	// before removing its worktree (closing the pane): that is not an exit.
+	if cur, err := ledger.Load(t.Name); err == nil && ended(cur) {
+		return
+	}
 	s.setState(t.Name, "exited")
 	s.Log.Printf("%s: pane %s exited", t.Name, t.PaneID)
 	s.notify("fleet: "+t.Name+" exited", "The pane closed or the agent process ended.", "request")
@@ -241,7 +250,11 @@ func (s *Supervisor) deliver(t ledger.Task) {
 }
 
 func (s *Supervisor) setState(name, state string) {
-	err := ledger.Update(name, func(t *ledger.Task) { t.State = state })
+	err := ledger.Update(name, func(t *ledger.Task) {
+		if !ended(*t) { // never resurrect an exited or stopped task
+			t.State = state
+		}
+	})
 	if err != nil {
 		s.Log.Printf("%s: record state: %v", name, err)
 	}

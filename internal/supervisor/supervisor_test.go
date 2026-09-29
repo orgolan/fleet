@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"fleet/internal/crew"
 	"fleet/internal/herdr"
 	"fleet/internal/herdr/fake"
 	"fleet/internal/ledger"
@@ -85,4 +86,27 @@ func TestFinishedTurnNotifiesAndExitIsRecorded(t *testing.T) {
 	srv.Emit("pane.exited", "w:p2", map[string]any{"workspace_id": "w"})
 	eventually(t, "exited recorded", func() bool { got, _ := ledger.Load("b1"); return got.State == "exited" })
 	eventually(t, "exited notification", func() bool { _, n := srv.Snapshot(); return len(n) == 2 })
+}
+
+func TestStopDoesNotTriggerExitedToast(t *testing.T) {
+	task := ledger.Task{Name: "s1", Kind: "claude", PaneID: "w:p3", WorkspaceID: "ws", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setup(t, task)
+	srv.SetAgent("s1", "w:p3", "working", "")
+	srv.SetWorkspace("w:p3", "ws")
+	eventually(t, "state working", func() bool { got, _ := ledger.Load("s1"); return got.State == "working" })
+
+	// Stopping closes the pane (the fake emits pane.closed), which the
+	// supervisor must not report as the agent exiting.
+	if err := crew.Stop(&herdr.Client{Socket: srv.Socket}, "s1", false); err != nil {
+		t.Fatal(err)
+	}
+	// Also feed a stale exit event, as a racing reconcile could.
+	srv.Emit("pane.exited", "w:p3", map[string]any{"workspace_id": "ws"})
+	time.Sleep(300 * time.Millisecond)
+	if _, n := srv.Snapshot(); len(n) != 0 {
+		t.Fatalf("spurious notifications: %v", n)
+	}
+	if got, _ := ledger.Load("s1"); got.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", got.State)
+	}
 }

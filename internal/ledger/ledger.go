@@ -22,7 +22,7 @@ type Task struct {
 	PaneID      string    `json:"pane_id"`
 	Brief       string    `json:"brief"`
 	BriefSent   bool      `json:"brief_sent"`
-	State       string    `json:"state,omitempty"` // last observed: working, idle, blocked, done, exited
+	State       string    `json:"state,omitempty"` // last observed: working, idle, blocked, done, exited, stopped (by fleet stop)
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
