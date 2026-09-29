@@ -110,3 +110,30 @@ func TestStopDoesNotTriggerExitedToast(t *testing.T) {
 		t.Fatalf("state = %q, want stopped", got.State)
 	}
 }
+
+// exited() receives a task copy read before `fleet stop` marked it stopped
+// (taskByPane/reconcile race). The ledger re-read guard must swallow it: no
+// toast, state stays stopped. The event path filters ended tasks up front, so
+// the guard is only reachable with a stale copy, hence the direct call.
+func TestExitedWithStaleCopyOfStoppedTaskIsSilent(t *testing.T) {
+	task := ledger.Task{Name: "g1", Kind: "claude", PaneID: "w:p9", WorkspaceID: "ws", Brief: "x", BriefSent: true, State: "working", CreatedAt: time.Now()}
+	t.Setenv("FLEET_HOME", t.TempDir())
+	if err := ledger.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	srv := fake.New(t)
+	s := New(&herdr.Client{Socket: srv.Socket}, log.New(io.Discard, "", 0))
+
+	stale := task // what the supervisor read before the stop
+	if err := ledger.Update("g1", func(x *ledger.Task) { x.State = "stopped" }); err != nil {
+		t.Fatal(err)
+	}
+	s.exited(stale)
+
+	if _, n := srv.Snapshot(); len(n) != 0 {
+		t.Fatalf("spurious notifications: %v", n)
+	}
+	if got, _ := ledger.Load("g1"); got.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", got.State)
+	}
+}
