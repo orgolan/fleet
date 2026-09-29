@@ -75,7 +75,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		return t, fmt.Errorf("start agent (worktree %s, workspace %s, pane %s left in place): %w", t.Worktree, t.WorkspaceID, t.PaneID, err)
 	}
 	if s.Brief != "" {
-		if err := c.AgentPrompt(s.Name, s.Brief); err != nil {
+		if err := promptWhenReady(c, s.Name, s.Brief); err != nil {
 			var he *herdr.Error
 			if errors.As(err, &he) && he.Code == "agent_blocked" {
 				return t, fmt.Errorf("agent %s is running but blocked at an approval or trust prompt (pane %s); the brief was NOT sent. Resolve the prompt, then send it: herdr agent prompt %s %q", s.Name, t.PaneID, s.Name, s.Brief)
@@ -84,6 +84,20 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		}
 	}
 	return t, nil
+}
+
+// promptWhenReady sends the brief, retrying while herdr has not yet recognized
+// the new agent (agent_not_ready). A blocked agent is not retried.
+func promptWhenReady(c *herdr.Client, name, text string) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		err := c.AgentPrompt(name, text)
+		var he *herdr.Error
+		if err == nil || !errors.As(err, &he) || he.Code != "agent_not_ready" || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // startWhenReady starts the agent, retrying while the new pane's shell is not
