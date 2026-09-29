@@ -24,16 +24,19 @@ type Server struct {
 	Socket string
 
 	mu            sync.Mutex
-	agents        map[string]*Agent // by pane
-	Prompts       []string          // "<name>: <text>", in order
-	Notifications []string          // titles, in order
-	Keys          []string          // "<target>: <key,key>" from agent.send_keys, in order
-	Focused       []string          // agent.focus targets, in order
-	Removed       []string          // "<workspace>" or "<workspace>!" (forced) from worktree.remove
-	Runs          []string          // "<pane>: <command>" typed via pane.send_input
-	Workspaces    []map[string]any  // workspace.create params, in order
-	DirtyWS       map[string]bool   // workspaces whose worktree.remove needs force
-	Version       string            // ping version, "fake" if empty
+	agents        map[string]*Agent   // by pane
+	Prompts       []string            // "<name>: <text>", in order
+	Notifications []string            // titles, in order
+	Keys          []string            // "<target>: <key,key>" from agent.send_keys, in order
+	Focused       []string            // agent.focus targets, in order
+	Removed       []string            // "<workspace>" or "<workspace>!" (forced) from worktree.remove
+	Runs          []string            // "<pane>: <command>" typed via pane.send_input
+	Workspaces    []map[string]any    // workspace.create params, in order
+	DirtyWS       map[string]bool     // workspaces whose worktree.remove needs force
+	GoneWS        map[string]bool     // workspaces whose worktree git no longer knows
+	Closed        []string            // workspace.close targets, in order
+	openWS        []map[string]string // workspaces reported by workspace.list
+	Version       string              // ping version, "fake" if empty
 	subs          []*sub
 	ln            net.Listener
 }
@@ -89,6 +92,44 @@ func (s *Server) SetWorkspace(pane, ws string) {
 	if a := s.agents[pane]; a != nil {
 		a.WS = ws
 	}
+}
+
+// SetGone makes worktree.remove for a workspace fail as herdr does when the
+// worktree directory was already removed (even by force).
+func (s *Server) SetGone(ws string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.GoneWS == nil {
+		s.GoneWS = map[string]bool{}
+	}
+	s.GoneWS[ws] = true
+}
+
+// AddWorkspace makes workspace.list report a workspace.
+func (s *Server) AddWorkspace(id, label string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.openWS = append(s.openWS, map[string]string{"workspace_id": id, "label": label})
+}
+
+// CloseWorkspace drops a workspace from workspace.list, as closing it would.
+func (s *Server) CloseWorkspace(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var keep []map[string]string
+	for _, w := range s.openWS {
+		if w["workspace_id"] != id {
+			keep = append(keep, w)
+		}
+	}
+	s.openWS = keep
+}
+
+// ClosedWorkspaces returns the workspace.close targets seen so far.
+func (s *Server) ClosedWorkspaces() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.Closed...)
 }
 
 // SetDirty makes worktree.remove for a workspace fail unless forced.
@@ -251,6 +292,9 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 			Force       bool
 		}
 		json.Unmarshal(raw, &p)
+		if s.GoneWS[p.WorkspaceID] {
+			return nil, "worktree_remove_failed: fatal: '/wt' is not a working tree"
+		}
 		if s.DirtyWS[p.WorkspaceID] && !p.Force {
 			return nil, "worktree_dirty"
 		}
@@ -267,6 +311,28 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 			}
 		}
 		return map[string]any{"type": "worktree_removed", "workspace_id": p.WorkspaceID, "path": "", "forced": p.Force}, ""
+	case "workspace.list":
+		return map[string]any{"type": "workspace_list", "workspaces": s.openWS}, ""
+	case "workspace.close":
+		var p struct {
+			WorkspaceID string `json:"workspace_id"`
+		}
+		json.Unmarshal(raw, &p)
+		s.Closed = append(s.Closed, p.WorkspaceID)
+		var keep []map[string]string
+		for _, w := range s.openWS {
+			if w["workspace_id"] != p.WorkspaceID {
+				keep = append(keep, w)
+			}
+		}
+		s.openWS = keep
+		for pane, a := range s.agents {
+			if a.WS == p.WorkspaceID {
+				delete(s.agents, pane)
+				s.emitLocked("pane.closed", pane, map[string]any{"workspace_id": p.WorkspaceID})
+			}
+		}
+		return map[string]any{"type": "workspace_closed", "workspace_id": p.WorkspaceID}, ""
 	case "workspace.create":
 		var p map[string]any
 		json.Unmarshal(raw, &p)

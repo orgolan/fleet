@@ -1,10 +1,14 @@
 package crew
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/orgolan/fleet/internal/herdr"
 	"github.com/orgolan/fleet/internal/ledger"
@@ -85,24 +89,60 @@ func Stop(c *herdr.Client, name string, force bool) error {
 			fmt.Fprintf(os.Stderr, "fleet: warning: could not save %s's output: %v\n", name, err)
 		}
 	}
+	// A crewmate that ran its own wp-env would leave its containers behind.
+	if _, err := os.Stat(filepath.Join(t.Worktree, ".wp-env.json")); err == nil {
+		if err := stopEnv(t.Worktree); err != nil {
+			fmt.Fprintf(os.Stderr, "fleet: warning: could not stop %s's wp-env (containers may still run; `docker ps`): %v\n", name, err)
+		}
+	}
 	prev := t.State
 	if err := ledger.Update(name, func(t *ledger.Task) { t.State = "stopped" }); err != nil {
 		return err
 	}
-	if err := c.WorktreeRemove(t.WorkspaceID, force); err != nil {
+	restore := func(err error) error {
 		if rerr := ledger.Update(name, func(t *ledger.Task) {
 			if t.State == "stopped" {
 				t.State = prev
 			}
 		}); rerr != nil {
-			err = fmt.Errorf("%w (also failed to restore ledger state: %v)", err, rerr)
+			return fmt.Errorf("%w (also failed to restore ledger state: %v)", err, rerr)
 		}
+		return err
+	}
+	if err := c.WorktreeRemove(t.WorkspaceID, force); err != nil {
+		// Git no longer knows the worktree (removed by hand, or a removal that failed
+		// part way): there is no work left to protect, so just close the workspace.
+		if strings.Contains(err.Error(), "is not a working tree") {
+			if cerr := c.WorkspaceClose(t.WorkspaceID); cerr != nil {
+				return restore(fmt.Errorf("%w (and closing its workspace failed: %v)", err, cerr))
+			}
+			fmt.Fprintf(os.Stderr, "fleet: warning: %s's worktree %s was already gone from git; closed its workspace. Delete the directory by hand if it is still there.\n", name, t.Worktree)
+			return nil
+		}
+		err = restore(err)
 		if !force {
-			return fmt.Errorf("%w\nherdr refuses to remove a dirty or unmerged worktree; commit/merge the work, or rerun with --force to DISCARD uncommitted work in %s", err, t.Worktree)
+			return fmt.Errorf("%w\nif the worktree is dirty or unmerged, commit/merge the work, or rerun with --force to DISCARD uncommitted work in %s; otherwise fix the error above", err, t.Worktree)
 		}
 		return err
 	}
 	return nil
+}
+
+// stopEnv stops the wp-env stack of a worktree; a variable so tests need no Docker.
+var stopEnv = func(dir string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "npx", "--no-install", "wp-env", "stop")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, firstLine(strings.TrimSpace(string(out))))
+	}
+	return nil
+}
+
+func firstLine(s string) string {
+	l, _, _ := strings.Cut(s, "\n")
+	return l
 }
 
 // resultLines is how much output Stop keeps and Result reads.

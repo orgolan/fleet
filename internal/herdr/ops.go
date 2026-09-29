@@ -16,6 +16,20 @@ func (c *Client) WorktreeRemove(workspaceID string, force bool) error {
 	return c.Call("worktree.remove", map[string]any{"workspace_id": workspaceID, "force": force}, nil)
 }
 
+// WorkspaceClose closes a workspace and its panes without touching any worktree.
+func (c *Client) WorkspaceClose(workspaceID string) error {
+	return c.Call("workspace.close", map[string]any{"workspace_id": workspaceID}, nil)
+}
+
+// WorkspaceList returns every open workspace.
+func (c *Client) WorkspaceList() ([]Workspace, error) {
+	var r struct {
+		Workspaces []Workspace `json:"workspaces"`
+	}
+	err := c.Call("workspace.list", map[string]any{}, &r)
+	return r.Workspaces, err
+}
+
 // WorkspaceCreated is the workspace.create result: the new workspace and its root pane.
 type WorkspaceCreated struct {
 	Workspace Workspace `json:"workspace"`

@@ -2,6 +2,7 @@ package crew
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +118,50 @@ func TestStopDirtyNeedsForce(t *testing.T) {
 	}
 	if _, _, rm, _ := srv.Recorded(); len(rm) != 1 || rm[0] != "wa!" {
 		t.Fatalf("removed = %v", rm)
+	}
+}
+
+// A worktree that git no longer knows (half-removed after an earlier failure)
+// must not leave the crewmate running: close the workspace and mark it stopped.
+func TestStopClosesWorkspaceWhenWorktreeIsGone(t *testing.T) {
+	srv, c := env(t)
+	save(t, ledger.Task{Name: "a", PaneID: "w:p1", WorkspaceID: "wa", State: "idle"})
+	srv.SetAgent("a", "w:p1", "idle", "")
+	srv.SetWorkspace("w:p1", "wa")
+	srv.SetGone("wa")
+	if err := Stop(c, "a", false); err != nil {
+		t.Fatal(err)
+	}
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wa" {
+		t.Fatalf("closed = %v", cl)
+	}
+	if got, _ := ledger.Load("a"); got.State != "stopped" {
+		t.Fatalf("state = %q", got.State)
+	}
+}
+
+// A crewmate that ran wp-env leaves containers behind unless stop shuts them down.
+func TestStopStopsWpEnvOnlyWhenTheWorktreeHasOne(t *testing.T) {
+	var stopped []string
+	old := stopEnv
+	stopEnv = func(dir string) error { stopped = append(stopped, dir); return nil }
+	t.Cleanup(func() { stopEnv = old })
+
+	srv, c := env(t)
+	withEnv, plain := t.TempDir(), t.TempDir()
+	os.WriteFile(withEnv+"/.wp-env.json", []byte("{}"), 0o644)
+	save(t, ledger.Task{Name: "a", PaneID: "w:p1", WorkspaceID: "wa", Worktree: withEnv, State: "idle"})
+	save(t, ledger.Task{Name: "b", PaneID: "w:p2", WorkspaceID: "wb", Worktree: plain, State: "idle"})
+	srv.SetAgent("a", "w:p1", "idle", "")
+	srv.SetAgent("b", "w:p2", "idle", "")
+	if err := Stop(c, "a", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := Stop(c, "b", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(stopped) != 1 || stopped[0] != withEnv {
+		t.Fatalf("wp-env stopped in %v, want only %s", stopped, withEnv)
 	}
 }
 
