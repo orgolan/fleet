@@ -7,10 +7,32 @@ The project is a Go CLI (`cmd/fleet`, `internal/`) plus two skills in `skills/`:
 under `.claude/skills/`, so they work as soon as Claude Code is opened in this
 repo.
 
+## Every session: load the skill, check for updates
+
+Onboarding (next section) comes first when it applies; do this after it.
+
+The first time the captain asks for anything fleet-related in a session (spawning,
+crew status, projects, setup), load the `fleet` skill before acting, and once per
+session check whether a newer fleet is on GitHub:
+
+```bash
+git fetch --quiet origin main && git rev-list --count HEAD..origin/main
+```
+
+A count above 0 means an update is available. Tell the captain in one line
+(`git log --oneline HEAD..origin/main` shows what is new) and offer to update:
+`git pull --ff-only`, then `scripts/install.sh setup` to rebuild. Never pull
+without their say-so, and never stop for a failed check (offline, no `origin`,
+local commits or uncommitted changes): mention it briefly and carry on.
+
 ## First run: onboarding
 
-Do this when the captain has just cloned the repo, asks to set up or get started,
-or when `bin/fleet` does not exist or `fleet` is not on PATH.
+Do this automatically, as your first action and whatever the captain's first
+message says (even just "hi"), when this is the first use after download:
+`bin/fleet` does not exist or `fleet` is not on PATH (check with
+`test -x bin/fleet && command -v fleet`). Also do it when the captain asks to set
+up or get started. Greet them, say you are starting onboarding, then follow the
+steps below; answer their original request once it is done.
 
 1. **Check the environment.** `test "${HERDR_ENV:-}" = 1`. If it is not set,
    tell the captain to start `herdr`, open a pane there and run `claude` in this
