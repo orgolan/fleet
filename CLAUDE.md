@@ -21,6 +21,10 @@ or when `bin/fleet` does not exist or `fleet` is not on PATH.
    - If a tool is missing, the script prints where to get it. Relay that and
      wait. **Never install Go, herdr or Claude Code yourself, and ask before
      changing anything outside this repo** (shell profile, PATH).
+   - If setup warns that `~/.local/bin` is not on PATH, `fleet` will not be found
+     and the doctor will FAIL on it. Tell the captain the exact line to add to
+     their shell profile (`export PATH="$HOME/.local/bin:$PATH"`), let them add it
+     and restart the shell, or run fleet by its full path for now.
 3. **Verify.** Run `scripts/doctor.sh` and summarize it; use the `fleet-doctor`
    skill for the details. Fix warnings only with the captain's say-so.
 4. **First project.** Ask what the captain wants to work on, then one of:

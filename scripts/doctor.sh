@@ -121,7 +121,6 @@ section "Housekeeping"
 if [ -d "$FLEET_HOME_DIR/tasks" ]; then
 	stopped=$(grep -l '"state": "stopped"' "$FLEET_HOME_DIR"/tasks/*.json 2>/dev/null | wc -l)
 	[ "$stopped" -gt 5 ] && warn "$stopped stopped task records in $FLEET_HOME_DIR/tasks" "prune old records you no longer need" || ok "task ledger: $stopped stopped record(s)"
-	for l in "$FLEET_HOME_DIR"/tasks/*.lock "$FLEET_HOME_DIR"/tasks/*.rw; do [ -e "$l" ] && break; done
 fi
 if command -v herdr >/dev/null 2>&1 && [ "${HERDR_ENV:-}" = 1 ]; then
 	sw=$(herdr workspace list 2>/dev/null | grep -o '"label":"fleet-supervisor"' | wc -l)

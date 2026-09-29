@@ -40,9 +40,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 	if s.Kind == "" {
 		return zero, fmt.Errorf("agent kind is required")
 	}
-	if s.Branch == "" {
-		s.Branch = "github.com/orgolan/fleet/" + s.Name
-	}
+	s.Branch = branchFor(s)
 	repo, err := filepath.Abs(s.Repo)
 	if err != nil {
 		return zero, err
@@ -83,6 +81,14 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		}
 	}
 	return t, nil
+}
+
+// branchFor is the crewmate's branch: the requested one, else fleet/<name>.
+func branchFor(s Spec) string {
+	if s.Branch != "" {
+		return s.Branch
+	}
+	return "fleet/" + s.Name
 }
 
 // startWhenReady starts the agent, retrying while the new pane's shell is not
