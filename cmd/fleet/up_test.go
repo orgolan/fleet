@@ -11,15 +11,14 @@ import (
 func TestUpStartsSupervisorOnlyWhenNotRunning(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLEET_HOME", home)
-	t.Setenv("HERDR_PANE_ID", "w:p1")
 	srv := fake.New(t)
 	t.Setenv("HERDR_SOCKET_PATH", srv.Socket)
 
 	if err := up(nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(srv.Splits) != 1 || srv.Splits[0]["focus"] != false || srv.Splits[0]["target_pane_id"] != "w:p1" {
-		t.Fatalf("splits = %v", srv.Splits)
+	if len(srv.Workspaces) != 1 || srv.Workspaces[0]["focus"] != false || srv.Workspaces[0]["label"] != supervisorLabel {
+		t.Fatalf("workspaces = %v", srv.Workspaces)
 	}
 	_, _, _, runs := srv.Recorded()
 	if len(runs) != 1 || !strings.Contains(runs[0], "supervise") || !strings.Contains(runs[0], "FLEET_HOME=") || !strings.HasSuffix(runs[0], "enter") {
@@ -34,8 +33,8 @@ func TestUpStartsSupervisorOnlyWhenNotRunning(t *testing.T) {
 	if err := up(nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(srv.Splits) != 1 {
-		t.Fatalf("second up split again: %v", srv.Splits)
+	if len(srv.Workspaces) != 1 {
+		t.Fatalf("second up created another workspace: %v", srv.Workspaces)
 	}
 }
 

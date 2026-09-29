@@ -16,21 +16,17 @@ func (c *Client) WorktreeRemove(workspaceID string, force bool) error {
 	return c.Call("worktree.remove", map[string]any{"workspace_id": workspaceID, "force": force}, nil)
 }
 
-// PaneSplitParams mirrors the pane.split request. Direction is "right" or "down".
-type PaneSplitParams struct {
-	TargetPaneID string `json:"target_pane_id,omitempty"`
-	Direction    string `json:"direction"`
-	CWD          string `json:"cwd,omitempty"`
-	Focus        bool   `json:"focus"`
+// WorkspaceCreated is the workspace.create result: the new workspace and its root pane.
+type WorkspaceCreated struct {
+	Workspace Workspace `json:"workspace"`
+	RootPane  Pane      `json:"root_pane"`
 }
 
-// PaneSplit splits a pane and returns the new one.
-func (c *Client) PaneSplit(p PaneSplitParams) (Pane, error) {
-	var r struct {
-		Pane Pane `json:"pane"`
-	}
-	err := c.Call("pane.split", p, &r)
-	return r.Pane, err
+// WorkspaceCreate opens a workspace without focusing it.
+func (c *Client) WorkspaceCreate(cwd, label string) (WorkspaceCreated, error) {
+	var r WorkspaceCreated
+	err := c.Call("workspace.create", map[string]any{"cwd": cwd, "label": label, "focus": false}, &r)
+	return r, err
 }
 
 // PaneRun types a shell command into a pane and presses enter. The socket API

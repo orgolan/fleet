@@ -24,7 +24,7 @@ report its findings; do not try to fix the environment silently.
 
 ```
 fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]
-fleet up                     ensure the supervisor runs (toasts the captain on blocked / turn finished / exited)
+fleet up                     ensure the supervisor runs (spawn does this itself; toasts the captain on blocked / turn finished / exited)
 fleet status [--json]        tasks merged with live herdr status
 fleet read <name> [--lines N]
 fleet send <name> <text...>  refuses if the crewmate is blocked
@@ -54,8 +54,9 @@ Never write secrets into notes.
 2. **Spawn.** One `fleet spawn --repo <repo> <name> "<brief>"` per task. Each
    gets its own worktree on branch `fleet/<name>`. Use `--base REF` if it must
    branch from something other than the default.
-3. **Supervise.** Run `fleet up` once after spawning so the supervisor delivers
-   briefs and toasts the captain on state changes.
+3. **Supervise.** `fleet spawn` starts the supervisor (workspace
+   `fleet-supervisor`) if it is not running; it delivers briefs and toasts the
+   captain on state changes. Run `fleet doctor` if toasts stop arriving.
 4. **Report.** Tell the captain what launched: names, branches, and anything
    that needs them (see Blocked). Then stop; do not poll in a loop.
 5. **Check in.** When asked, or when a toast/turn-finished arrives, run

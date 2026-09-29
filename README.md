@@ -45,7 +45,7 @@ Code session inside herdr, ask it to run a crew, or drive it by hand:
 
 ```bash
 fleet spawn --repo ~/projects/app fix-login "Fix the login redirect bug. Run go test ./... before finishing."
-fleet up                   # start the supervisor in a background herdr pane
+fleet up                   # start the supervisor (spawn already does this if it is not running)
 fleet status               # tasks merged with live herdr status
 fleet read fix-login       # tail of its output
 fleet send fix-login "Also add a regression test."
@@ -67,7 +67,7 @@ fleet stop fix-login       # after its branch fleet/fix-login is merged or appro
 | `fleet keys <name> <key...>` | Captain answers a blocked prompt, e.g. `enter`, `esc`, `ctrl+c`. |
 | `fleet focus <name>` | Focus the crewmate in the herdr UI. |
 | `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. |
-| `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in a background herdr pane). |
+| `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in its own `fleet-supervisor` herdr workspace). `spawn` does this automatically. |
 | `fleet supervise [--poll 20s]` | Event-driven supervisor; single instance. |
 | `fleet doctor` | Environment checklist. |
 

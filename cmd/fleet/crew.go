@@ -45,6 +45,13 @@ func spawn(args []string) error {
 	}
 	t, err := crew.Spawn(herdr.New(), spec)
 	if t.Name != "" {
+		// The crewmate is recorded (even if blocked or failed to start): make sure
+		// a supervisor exists to deliver its brief and report on it.
+		if started, pane, _, serr := ensureSupervisor(); serr != nil {
+			fmt.Fprintln(os.Stderr, "fleet: warning: could not start supervisor:", serr)
+		} else if started {
+			fmt.Fprintf(os.Stderr, "fleet: started supervisor in workspace %q (pane %s)\n", supervisorLabel, pane)
+		}
 		// Print the task as stored (with its updated_at), not Spawn's copy.
 		if stored, lerr := ledger.Load(t.Name); lerr == nil {
 			t = stored

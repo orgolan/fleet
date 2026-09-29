@@ -31,7 +31,7 @@ type Server struct {
 	Focused       []string          // agent.focus targets, in order
 	Removed       []string          // "<workspace>" or "<workspace>!" (forced) from worktree.remove
 	Runs          []string          // "<pane>: <command>" typed via pane.send_input
-	Splits        []map[string]any  // pane.split params, in order
+	Workspaces    []map[string]any  // workspace.create params, in order
 	DirtyWS       map[string]bool   // workspaces whose worktree.remove needs force
 	Version       string            // ping version, "fake" if empty
 	subs          []*sub
@@ -267,11 +267,11 @@ func (s *Server) handle(c net.Conn, method string, raw json.RawMessage) (any, st
 			}
 		}
 		return map[string]any{"type": "worktree_removed", "workspace_id": p.WorkspaceID, "path": "", "forced": p.Force}, ""
-	case "pane.split":
+	case "workspace.create":
 		var p map[string]any
 		json.Unmarshal(raw, &p)
-		s.Splits = append(s.Splits, p)
-		return map[string]any{"type": "pane_info", "pane": map[string]any{"pane_id": "w:new", "workspace_id": "w", "tab_id": "w:t1"}}, ""
+		s.Workspaces = append(s.Workspaces, p)
+		return map[string]any{"type": "workspace_created", "workspace": map[string]any{"workspace_id": "w:sup", "label": p["label"]}, "root_pane": map[string]any{"pane_id": "w:new", "workspace_id": "w:sup", "tab_id": "w:sup:t1"}}, ""
 	case "pane.send_input":
 		var p struct {
 			PaneID string `json:"pane_id"`

@@ -42,49 +42,63 @@ func supervise(args []string) error {
 	return s.Run(ctx)
 }
 
-// up makes sure a supervisor is running, starting one in a background pane
-// split from the caller's pane so it stays visible without stealing focus.
+// supervisorLabel names the herdr workspace the supervisor lives in.
+const supervisorLabel = "fleet-supervisor"
+
+// up makes sure a supervisor is running.
 func up(args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("usage: fleet up")
 	}
+	started, pane, pid, err := ensureSupervisor()
+	switch {
+	case err != nil:
+		return err
+	case started:
+		fmt.Println(pane)
+	default:
+		fmt.Printf("supervisor already running (pid %d)\n", pid)
+	}
+	return nil
+}
+
+// ensureSupervisor starts a supervisor if none is running, in a workspace of its
+// own (not a split of the caller's pane, so closing the caller's pane or tab
+// cannot kill it). The workspace is not focused.
+func ensureSupervisor() (started bool, pane string, pid int, err error) {
 	dir, err := ledger.Dir()
 	if err != nil {
-		return err
+		return false, "", 0, err
 	}
 	running, err := supervisor.Running(dir)
 	if err != nil {
-		return err
+		return false, "", 0, err
 	}
 	if running {
-		fmt.Printf("supervisor already running (pid %d)\n", supervisor.ReadPID(dir))
-		return nil
+		return false, "", supervisor.ReadPID(dir), nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return false, "", 0, err
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return false, "", 0, err
 	}
 	c := herdr.New()
-	pane, err := c.PaneSplit(herdr.PaneSplitParams{
-		TargetPaneID: os.Getenv("HERDR_PANE_ID"), Direction: "down", CWD: cwd, Focus: false,
-	})
+	ws, err := c.WorkspaceCreate(cwd, supervisorLabel)
 	if err != nil {
-		return fmt.Errorf("split pane: %w", err)
+		return false, "", 0, fmt.Errorf("create supervisor workspace: %w", err)
 	}
 	// The new pane's shell has herdr's environment, not ours: carry FLEET_HOME.
 	cmd := shellQuote(exe) + " supervise"
 	if h := os.Getenv("FLEET_HOME"); h != "" {
 		cmd = "FLEET_HOME=" + shellQuote(h) + " " + cmd
 	}
-	if err := c.PaneRun(pane.PaneID, cmd); err != nil {
-		return fmt.Errorf("start supervisor in pane %s: %w", pane.PaneID, err)
+	if err := c.PaneRun(ws.RootPane.PaneID, cmd); err != nil {
+		return false, "", 0, fmt.Errorf("start supervisor in pane %s: %w", ws.RootPane.PaneID, err)
 	}
-	fmt.Println(pane.PaneID)
-	return nil
+	return true, ws.RootPane.PaneID, 0, nil
 }
 
 func shellQuote(s string) string {
