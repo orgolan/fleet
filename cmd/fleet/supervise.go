@@ -38,6 +38,7 @@ func supervise(args []string) error {
 	defer stop()
 	s := supervisor.New(herdr.New(), log.New(os.Stderr, "", log.LstdFlags))
 	s.Poll = *poll
+	s.SelfWS, s.SupLabel = os.Getenv("HERDR_WORKSPACE_ID"), supervisorLabel
 	s.Log.Printf("supervising (state in %s)", dir)
 	return s.Run(ctx)
 }

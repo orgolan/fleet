@@ -44,6 +44,7 @@ func spawn(args []string) error {
 		return fmt.Errorf("usage: fleet spawn [flags] <name> [brief...] [-- agent-args...]")
 	}
 	spec.Name = fs.Arg(0)
+	spec.Mate = os.Getenv("HERDR_PANE_ID")
 	spec.Brief = strings.Join(fs.Args()[1:], " ")
 	if *proj != "" {
 		if err := applyProject(&spec, *proj); err != nil {

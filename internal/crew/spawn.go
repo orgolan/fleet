@@ -31,6 +31,7 @@ type Spec struct {
 	Trust   bool     // pass trust_repository for the worktree request
 	OneShot bool     // dispose automatically when its first turn finishes
 	Keep    bool     // never dispose automatically
+	Mate    string   // pane of the spawning first mate, told when the crewmate needs attention
 	Dirty   bool     // copy the repo's uncommitted changes into the new worktree
 	// TrustClaude marks the new worktree trusted in Claude Code, because the captain
 	// trusted the project when registering it.
@@ -76,7 +77,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		}
 	}
 	t := ledger.Task{
-		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Branch: s.Branch, Worktree: wt.Worktree.Path,
+		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Mate: s.Mate, Branch: s.Branch, Worktree: wt.Worktree.Path,
 		WorkspaceID: wt.Workspace.WorkspaceID, PaneID: wt.RootPane.PaneID,
 		Base: base, BaseRev: baseRev, Brief: s.Brief, CreatedAt: time.Now().UTC(),
 	}

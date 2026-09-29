@@ -32,18 +32,28 @@ type Supervisor struct {
 	Verify time.Duration
 	ctx    context.Context
 
+	// SelfWS is the workspace the supervisor itself runs in and SupLabel the label
+	// supervisor workspaces carry; the audit reports other workspaces with that
+	// label. AuditEvery is the number of polls between audits, zero disables them.
+	SelfWS, SupLabel string
+	AuditEvery       int
+	polls            int
+	sightings        map[string]int // workspace id -> audits it looked orphaned in a row
+	reported         map[string]bool
+
 	last      map[string]herdr.AgentStatus // task name -> last handled status
 	seen      map[string]bool              // task name -> was ever observed live
 	watches   map[string]context.CancelFunc
 	status    chan herdr.AgentStatusChanged
-	noDispose map[string]bool // tasks fleet declined to dispose (say why once, then leave them)
+	noDispose map[string]bool     // tasks fleet declined to dispose (say why once, then leave them)
+	pending   map[string][]string // first mate pane -> alerts not yet delivered
 }
 
 func New(c *herdr.Client, l *log.Logger) *Supervisor {
 	return &Supervisor{
-		C: c, Log: l, Poll: 20 * time.Second, Settle: 4 * time.Second, Verify: 25 * time.Second,
+		C: c, Log: l, Poll: 20 * time.Second, AuditEvery: 15, sightings: map[string]int{}, reported: map[string]bool{}, Settle: 4 * time.Second, Verify: 25 * time.Second,
 		last: map[string]herdr.AgentStatus{}, seen: map[string]bool{},
-		watches: map[string]context.CancelFunc{}, noDispose: map[string]bool{},
+		watches: map[string]context.CancelFunc{}, noDispose: map[string]bool{}, pending: map[string][]string{},
 		status: make(chan herdr.AgentStatusChanged, 64),
 	}
 }
@@ -55,6 +65,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	tick := time.NewTicker(s.Poll)
 	defer tick.Stop()
 	s.reconcile(ctx)
+	s.audit()
 	for {
 		select {
 		case <-ctx.Done():
@@ -65,6 +76,10 @@ func (s *Supervisor) Run(ctx context.Context) error {
 			s.onMeta(ctx, ev)
 		case <-tick.C:
 			s.reconcile(ctx)
+			if s.polls++; s.AuditEvery > 0 && s.polls%s.AuditEvery == 0 {
+				s.audit()
+			}
+			s.flush()
 		}
 	}
 }
@@ -213,7 +228,7 @@ func (s *Supervisor) exited(t ledger.Task) {
 	}
 	s.setState(t.Name, "exited")
 	s.Log.Printf("%s: pane %s exited", t.Name, t.PaneID)
-	s.notify("fleet: "+t.Name+" exited", "The pane closed or the agent process ended.", "request")
+	s.alert(t, "fleet: "+t.Name+" exited", "The pane closed or the agent process ended.", "request")
 }
 
 // handle reacts to a status transition; repeated statuses are ignored.
@@ -227,7 +242,7 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 	switch st {
 	case herdr.Blocked:
 		s.setState(t.Name, "blocked")
-		s.notify("fleet: "+t.Name+" needs you", s.tail(t.Name), "request")
+		s.alert(t, "fleet: "+t.Name+" needs you", s.tail(t.Name), "request")
 	case herdr.Idle, herdr.Done:
 		if !t.BriefSent && t.Brief != "" {
 			s.deliver(t, prev == herdr.Blocked)
@@ -236,7 +251,7 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 		s.setState(t.Name, string(st))
 		if prev == herdr.Working {
 			if !s.maybeDispose(t, st, true) {
-				s.notify("fleet: "+t.Name+" finished a turn", s.tail(t.Name), "done")
+				s.alert(t, "fleet: "+t.Name+" finished a turn", s.tail(t.Name), "done")
 			}
 			return
 		}
@@ -270,7 +285,7 @@ func (s *Supervisor) deliver(t ledger.Task, afterBlock bool) {
 	case errors.Is(err, crew.ErrBlocked):
 		s.last[t.Name] = herdr.Blocked
 		s.setState(t.Name, "blocked")
-		s.notify("fleet: "+t.Name+" needs you", "Blocked before its brief could be sent.\n"+s.tail(t.Name), "request")
+		s.alert(t, "fleet: "+t.Name+" needs you", "Blocked before its brief could be sent.\n"+s.tail(t.Name), "request")
 	default:
 		// Not sent; forget the status so the next pass retries.
 		s.Log.Printf("%s: brief delivery failed: %v", t.Name, err)
@@ -296,7 +311,7 @@ func (s *Supervisor) stillReady(pane string) bool {
 // warns the captain if not. It never resends: a lost brief is cheap to resend by
 // hand, a duplicated one is not cheap to undo. An agent still working is taken
 // as proof; an idle one must show the start of the brief (or Claude Code's
-// pasted-text placeholder) in its recent output.
+// pasted-text placeholder) in its recent output, and its input box must be empty.
 func (s *Supervisor) verify(t ledger.Task) {
 	sleep(s.ctx, s.Verify)
 	if s.ctx.Err() != nil {
@@ -312,8 +327,8 @@ func (s *Supervisor) verify(t ledger.Task) {
 		return
 	}
 	s.Log.Printf("%s: brief may not have been received", t.Name)
-	s.notify("fleet: "+t.Name+" may not have its brief",
-		"It is idle and its output does not show the brief. Check with `fleet read "+t.Name+"`; resend with `fleet send`.", "request")
+	s.alert(t, "fleet: "+t.Name+" may not have its brief",
+		"It is idle and its output does not show the brief. Check with `fleet read "+t.Name+"`; if the brief sits unsent in its input box, submit it with `fleet keys "+t.Name+" Enter`, otherwise resend with `fleet send`.", "request")
 }
 
 // snippet is the first 30 characters of the brief with whitespace removed.
@@ -335,6 +350,121 @@ func (s *Supervisor) setState(name, state string) {
 	})
 	if err != nil {
 		s.Log.Printf("%s: record state: %v", name, err)
+	}
+}
+
+// alert toasts the captain and queues the same news for the first mate that
+// spawned the task, who would otherwise never learn a crewmate went idle.
+func (s *Supervisor) alert(t ledger.Task, title, body, sound string) {
+	s.notify(title, body, sound)
+	if t.Mate == "" || t.Mate == t.PaneID {
+		return
+	}
+	s.tell(t.Mate, title, body)
+}
+
+// tell queues a message for a first mate and tries to deliver it.
+func (s *Supervisor) tell(mate, title, body string) {
+	msg := "[fleet] " + title
+	if body = strings.TrimSpace(body); body != "" {
+		msg += "\n" + body
+	}
+	s.pending[mate] = append(s.pending[mate], msg)
+	s.flush()
+}
+
+// alertAll is alert for news that belongs to no task: it goes to every first mate
+// the ledger knows.
+func (s *Supervisor) alertAll(title, body, sound string) {
+	s.notify(title, body, sound)
+	ts, err := ledger.List()
+	if err != nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, t := range ts {
+		if t.Mate != "" && !seen[t.Mate] {
+			seen[t.Mate] = true
+			s.tell(t.Mate, title, body)
+		}
+	}
+}
+
+// audit looks for workspaces fleet no longer accounts for: a second supervisor
+// workspace, or the workspace of a task that has ended (its pane or worktree is
+// gone but the workspace, and anything running in it, is not). A workspace must
+// look orphaned in two audits in a row, so one caught mid-`fleet stop` is not
+// reported. Each is reported once; fleet never closes them itself.
+func (s *Supervisor) audit() {
+	wss, err := s.C.WorkspaceList()
+	if err != nil {
+		s.Log.Printf("audit: workspace list: %v", err)
+		return
+	}
+	ts, err := ledger.List()
+	if err != nil {
+		return
+	}
+	endedWS := map[string]string{} // workspace id -> task name
+	for _, t := range ts {
+		if ended(t) && t.WorkspaceID != "" {
+			endedWS[t.WorkspaceID] = t.Name
+		}
+	}
+	open := map[string]bool{}
+	for _, w := range wss {
+		open[w.WorkspaceID] = true
+		why := ""
+		if task, ok := endedWS[w.WorkspaceID]; ok {
+			why = "it still belongs to " + task + ", which fleet has stopped or lost"
+		} else if s.SupLabel != "" && s.SelfWS != "" && w.Label == s.SupLabel && w.WorkspaceID != s.SelfWS {
+			why = "it is an extra supervisor workspace; this supervisor runs in " + s.SelfWS
+		}
+		if why == "" {
+			delete(s.sightings, w.WorkspaceID)
+			continue
+		}
+		if s.reported[w.WorkspaceID] {
+			continue
+		}
+		if s.sightings[w.WorkspaceID]++; s.sightings[w.WorkspaceID] < 2 {
+			continue
+		}
+		s.reported[w.WorkspaceID] = true
+		s.Log.Printf("audit: workspace %s (%s) is orphaned: %s", w.WorkspaceID, w.Label, why)
+		s.alertAll("fleet: leftover workspace "+w.WorkspaceID,
+			"Workspace "+w.WorkspaceID+" ("+w.Label+"): "+why+".\nLook, then close it with `herdr workspace close "+w.WorkspaceID+"`.", "request")
+	}
+	for id := range s.sightings {
+		if !open[id] {
+			delete(s.sightings, id)
+		}
+	}
+}
+
+// flush prompts each first mate that is ready (idle or done) with its queued
+// alerts in one message. A mate that is working or blocked keeps them queued;
+// the next poll tries again.
+func (s *Supervisor) flush() {
+	if len(s.pending) == 0 {
+		return
+	}
+	agents, err := s.C.Agents()
+	if err != nil {
+		return
+	}
+	for mate, msgs := range s.pending {
+		for _, a := range agents {
+			if a.PaneID != mate || a.Status != herdr.Idle && a.Status != herdr.Done {
+				continue
+			}
+			text := strings.Join(msgs, "\n\n")
+			if err := s.C.AgentPrompt(mate, text); err != nil {
+				s.Log.Printf("first mate %s: %v", mate, err)
+				break
+			}
+			delete(s.pending, mate)
+		}
 	}
 }
 
@@ -404,19 +534,19 @@ func (s *Supervisor) maybeDispose(t ledger.Task, st herdr.AgentStatus, turnEnded
 	}
 	if clean, err := crew.Clean(cur.Worktree); err != nil || !clean {
 		s.noDispose[t.Name] = true
-		s.notify("fleet: "+t.Name+" finished, not disposed", "Reason to dispose: "+reason+", but its worktree has uncommitted changes. Look, then `fleet stop "+t.Name+"`.", "request")
+		s.alert(t, "fleet: "+t.Name+" finished, not disposed", "Reason to dispose: "+reason+", but its worktree has uncommitted changes. Look, then `fleet stop "+t.Name+"`.", "request")
 		return false
 	}
 	if err := crew.Stop(s.C, t.Name, false); err != nil {
 		s.noDispose[t.Name] = true
 		s.Log.Printf("%s: not disposed: %v", t.Name, err)
-		s.notify("fleet: "+t.Name+" finished, not disposed", firstLine(err.Error())+"\nReview it, then `fleet stop "+t.Name+"`.", "request")
+		s.alert(t, "fleet: "+t.Name+" finished, not disposed", firstLine(err.Error())+"\nReview it, then `fleet stop "+t.Name+"`.", "request")
 		return false
 	}
 	delete(s.last, t.Name)
 	s.unwatch(t.PaneID)
 	s.Log.Printf("%s: disposed (%s)", t.Name, reason)
-	s.notify("fleet: "+t.Name+" disposed", "Finished: "+reason+". Its report is kept: `fleet result "+t.Name+"`.", "done")
+	s.alert(t, "fleet: "+t.Name+" disposed", "Finished: "+reason+". Its report is kept: `fleet result "+t.Name+"`.", "done")
 	return true
 }
 
@@ -426,7 +556,23 @@ func (s *Supervisor) briefVisible(t ledger.Task) bool {
 	if err != nil {
 		return false
 	}
+	if inputPending(txt) {
+		return false
+	}
 	return strings.Contains(squash(txt), snippet(t.Brief)) || strings.Contains(txt, "Pasted text")
+}
+
+// inputPending reports whether the agent's input box, the last "❯" line, still
+// holds text. A long brief pasted but never submitted shows there as a
+// "[Pasted text]" placeholder, which must not count as received.
+func inputPending(screen string) bool {
+	lines := strings.Split(screen, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), "❯"); ok {
+			return strings.TrimSpace(rest) != ""
+		}
+	}
+	return false
 }
 
 func firstLine(s string) string {

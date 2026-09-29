@@ -32,6 +32,32 @@
                 working -> idle/done -> toast "finished a turn"
 ```
 
+Every toast is also queued as a prompt for the first mate that spawned the task
+(`mate` in the ledger, from `HERDR_PANE_ID` at spawn). The queue is flushed when
+that pane is idle or done, on each alert and each poll, so the first mate hears
+about finished, blocked and exited crewmates without polling. Tasks spawned
+before this field existed have no mate and only toast.
+
+## Audit of leftover workspaces
+
+At start and every `AuditEvery` polls (15, about five minutes) the supervisor
+lists herdr's workspaces and looks for ones fleet no longer accounts for: an extra
+workspace labelled `fleet-supervisor` (this supervisor knows its own from
+`HERDR_WORKSPACE_ID`), or the workspace of a task the ledger says is stopped or
+exited. A workspace must look orphaned in two audits in a row, so one caught
+mid-`fleet stop` is not reported. Each is reported once, by toast and to every
+first mate the ledger knows; fleet never closes them itself. Workspaces that
+match neither rule (the captain's own) are left alone.
+
+## Stopping a crewmate
+
+`crew.Stop` saves the crewmate's output, runs `wp-env stop` in its worktree when
+it has a `.wp-env.json` (best effort, so its containers do not outlive it), marks
+it stopped and removes the worktree. If git no longer knows the worktree (removed
+by hand, or a removal that failed part way) there is nothing to protect, so it
+closes the workspace instead and warns. Any other removal failure restores the
+previous state and shows herdr's error.
+
 ## Why per-pane status subscriptions
 
 A single global status subscription would deliver every agent's changes in

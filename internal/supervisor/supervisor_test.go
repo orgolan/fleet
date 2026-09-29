@@ -237,6 +237,34 @@ func TestReceivedBriefDoesNotWarn(t *testing.T) {
 	}
 }
 
+// A long brief pasted into the input box but never submitted shows as a
+// placeholder there; that is not a received brief.
+func TestUnsubmittedPastedBriefWarns(t *testing.T) {
+	task := ledger.Task{Name: "v3", Kind: "claude", PaneID: "w:p1", Brief: "Review the welcome page carefully", CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Verify = 200 * time.Millisecond })
+	srv.SetAgent("v3", "w:p1", "idle", "")
+	eventually(t, "brief delivered", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+	srv.SetAgent("v3", "w:p1", "idle", "---\n❯ [Pasted text #1 +8 lines]\n---\n  fleet-v3 | ctx: 0%")
+	eventually(t, "unsent-brief warning", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "may not have its brief")
+	})
+}
+
+// A placeholder in the transcript, with the input box empty again, means the
+// pasted brief was submitted.
+func TestSubmittedPastedBriefDoesNotWarn(t *testing.T) {
+	task := ledger.Task{Name: "v4", Kind: "claude", PaneID: "w:p1", Brief: "Review the welcome page carefully", CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Verify = 100 * time.Millisecond })
+	srv.SetAgent("v4", "w:p1", "idle", "")
+	eventually(t, "brief delivered", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+	srv.SetAgent("v4", "w:p1", "idle", "❯ [Pasted text #1 +8 lines]\n\n● done\n---\n❯ \n---\n  fleet-v4 | ctx: 0%")
+	time.Sleep(400 * time.Millisecond)
+	if _, n := srv.Snapshot(); len(n) != 0 {
+		t.Fatalf("unexpected notifications: %v", n)
+	}
+}
+
 // --- automatic disposal of finished crewmates ---
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -367,5 +395,83 @@ func TestOneShotWithoutItsBriefIsNotDisposed(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	if rm := removed(srv); len(rm) != 0 {
 		t.Fatalf("a crewmate that never got its brief was disposed: %v", rm)
+	}
+}
+
+func TestFinishedTurnPromptsFirstMate(t *testing.T) {
+	task := ledger.Task{Name: "m1", Kind: "claude", PaneID: "w:p2", Mate: "w:p1", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Poll = 50 * time.Millisecond })
+	srv.SetAgent("first-mate", "w:p1", "working", "")
+	srv.SetAgent("m1", "w:p2", "working", "")
+	eventually(t, "state working", func() bool { got, _ := ledger.Load("m1"); return got.State == "working" })
+
+	srv.SetAgent("m1", "w:p2", "done", "all finished")
+	srv.Emit("pane.agent_status_changed", "w:p2", map[string]any{"workspace_id": "w", "agent_status": "done"})
+	eventually(t, "toast", func() bool { _, n := srv.Snapshot(); return len(n) == 1 })
+	if p, _ := srv.Snapshot(); len(p) != 0 {
+		t.Fatalf("busy first mate was prompted: %v", p)
+	}
+
+	// The mate finishes its turn; the next poll delivers the queued alert.
+	srv.SetAgent("first-mate", "w:p1", "idle", "")
+	eventually(t, "first mate prompted", func() bool {
+		p, _ := srv.Snapshot()
+		return len(p) == 1 && strings.HasPrefix(p[0], "first-mate: [fleet] fleet: m1 finished a turn")
+	})
+}
+
+// --- audit of leftover workspaces ---
+
+func auditTune(s *Supervisor) {
+	s.Poll = 30 * time.Millisecond
+	s.AuditEvery = 1
+	s.SelfWS, s.SupLabel = "wsup", "fleet-supervisor"
+}
+
+func TestAuditReportsExtraSupervisorWorkspaceOnceToTheFirstMate(t *testing.T) {
+	task := ledger.Task{Name: "au1", Kind: "claude", PaneID: "w:p2", WorkspaceID: "wtask", Mate: "w:p1", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, auditTune)
+	srv.SetAgent("first-mate", "w:p1", "idle", "")
+	srv.SetAgent("au1", "w:p2", "working", "")
+	srv.AddWorkspace("wsup", "fleet-supervisor") // this supervisor's own: fine
+	srv.AddWorkspace("wold", "fleet-supervisor") // a leftover
+	eventually(t, "leftover reported", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "leftover workspace wold")
+	})
+	eventually(t, "first mate told", func() bool {
+		p, _ := srv.Snapshot()
+		return len(p) == 1 && strings.Contains(p[0], "herdr workspace close wold")
+	})
+	time.Sleep(200 * time.Millisecond) // more audits run: still reported once
+	if _, n := srv.Snapshot(); len(n) != 1 {
+		t.Fatalf("notifications = %v", n)
+	}
+}
+
+func TestAuditReportsWorkspaceOfStoppedTask(t *testing.T) {
+	task := ledger.Task{Name: "au2", Kind: "claude", PaneID: "w:p2", WorkspaceID: "wdead", State: "stopped", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, auditTune)
+	srv.AddWorkspace("wdead", "au2")
+	srv.AddWorkspace("wother", "somebody's own workspace") // unknown to fleet: left alone
+	eventually(t, "stopped task's workspace reported", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "leftover workspace wdead")
+	})
+}
+
+// A workspace that disappears between audits (a stop in progress) is not reported.
+func TestAuditIgnoresWorkspaceThatGoesAway(t *testing.T) {
+	task := ledger.Task{Name: "au3", Kind: "claude", PaneID: "w:p2", WorkspaceID: "wgone", State: "stopped", Brief: "x", BriefSent: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) {
+		s.Poll = time.Hour
+		s.AuditEvery = 1
+	})
+	srv.AddWorkspace("wgone", "au3")
+	// The initial audit sees it once; closing it before a second audit means no report.
+	srv.CloseWorkspace("wgone")
+	time.Sleep(150 * time.Millisecond)
+	if _, n := srv.Snapshot(); len(n) != 0 {
+		t.Fatalf("notifications = %v", n)
 	}
 }

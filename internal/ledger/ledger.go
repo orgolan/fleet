@@ -24,6 +24,7 @@ type Task struct {
 	BaseRev     string    `json:"base_rev,omitempty"` // commit Base pointed at when the crewmate was spawned
 	OneShot     bool      `json:"one_shot,omitempty"` // report-style task: dispose when its first turn finishes
 	Keep        bool      `json:"keep,omitempty"`     // never dispose automatically
+	Mate        string    `json:"mate,omitempty"`     // pane of the first mate that spawned it; the supervisor prompts it
 	Worktree    string    `json:"worktree"`
 	WorkspaceID string    `json:"workspace_id"`
 	PaneID      string    `json:"pane_id"`
