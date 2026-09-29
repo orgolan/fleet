@@ -30,6 +30,7 @@ commands:
   merge      land a finished crewmate's branch and stop it: fleet merge <name> [--test "cmd"] [--keep-running]
   resume     relaunch crewmates whose panes are gone: fleet resume <name>... | --all
   stop       remove a crewmate's worktree and mark it stopped: fleet stop <name> [--force]
+  clean      close workspaces nobody is using (stopped tasks, leftover repo workspaces): fleet clean [--dry-run]
   prune      delete records of old stopped tasks: fleet prune [--older-than 7d] [--dry-run] [name...]
   supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
   up         ensure a supervisor is running (in a background herdr pane)
@@ -56,6 +57,7 @@ var commands = map[string]func(args []string) error{
 	"resume":    resume,
 	"stop":      stop,
 	"prune":     prune,
+	"clean":     clean,
 	"supervise": supervise,
 	"up":        up,
 	"doctor":    doctor,

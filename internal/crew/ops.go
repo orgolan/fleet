@@ -79,6 +79,62 @@ func Send(c *herdr.Client, name, text string) error {
 // otherwise see that as the crewmate exiting on its own. If herdr refuses
 // (dirty or unmerged worktree without force) the previous state is restored.
 func Stop(c *herdr.Client, name string, force bool) error {
+	err := stop(c, name, force)
+	if err == nil {
+		closeRepoWorkspace(c, name)
+	}
+	return err
+}
+
+// repoWorkspaces returns the open workspaces on repo's main checkout, or nil if
+// herdr cannot list them.
+func repoWorkspaces(c *herdr.Client, repo string) map[string]bool {
+	wss, err := c.WorkspaceList()
+	if err != nil {
+		return nil
+	}
+	ids := map[string]bool{}
+	for _, w := range wss {
+		if wt := w.Worktree; wt != nil && !wt.IsLinked && wt.CheckoutPath == repo {
+			ids[w.WorkspaceID] = true
+		}
+	}
+	return ids
+}
+
+// closeRepoWorkspace closes the main-checkout workspace herdr opened beside a
+// task's worktree once no live task is left on that repo. Best effort.
+func closeRepoWorkspace(c *herdr.Client, name string) {
+	t, err := ledger.Load(name)
+	if err != nil || t.Repo == "" {
+		return
+	}
+	all, err := ledger.List()
+	if err != nil {
+		return
+	}
+	mine := map[string]bool{}
+	for _, o := range all {
+		if o.Repo != t.Repo {
+			continue
+		}
+		if o.State != "stopped" && o.State != "exited" {
+			return // still in use
+		}
+		if o.RepoWS != "" {
+			mine[o.RepoWS] = true
+		}
+	}
+	for id := range repoWorkspaces(c, t.Repo) {
+		if mine[id] {
+			if err := c.WorkspaceClose(id); err != nil {
+				fmt.Fprintf(os.Stderr, "fleet: warning: could not close the repo workspace %s: %v\n", id, err)
+			}
+		}
+	}
+}
+
+func stop(c *herdr.Client, name string, force bool) error {
 	t, err := ledger.Load(name)
 	if err != nil {
 		return fmt.Errorf("no such task %q: %w", name, err)

@@ -456,11 +456,10 @@ func (s *Supervisor) alertAll(title, body, sound string) {
 	}
 }
 
-// audit looks for workspaces fleet no longer accounts for: a second supervisor
-// workspace, or the workspace of a task that has ended (its pane or worktree is
-// gone but the workspace, and anything running in it, is not). A workspace must
-// look orphaned in two audits in a row, so one caught mid-`fleet stop` is not
-// reported. Each is reported once; fleet never closes them itself.
+// audit looks for workspaces fleet no longer accounts for (see crew.Orphans) and
+// closes them: a workspace is only closed and never a worktree. A workspace must
+// look orphaned in two audits in a row, so one caught mid-`fleet stop` is left
+// alone. Each closure is reported once, by toast and to the first mates.
 func (s *Supervisor) audit() {
 	wss, err := s.C.WorkspaceList()
 	if err != nil {
@@ -471,47 +470,32 @@ func (s *Supervisor) audit() {
 	if err != nil {
 		return
 	}
-	endedWS := map[string]string{} // workspace id -> task name
-	knownRepos, liveRepos := map[string]bool{}, map[string]bool{}
-	for _, t := range ts {
-		if ended(t) && t.WorkspaceID != "" {
-			endedWS[t.WorkspaceID] = t.Name
-		}
-		if t.Repo != "" {
-			knownRepos[t.Repo] = true
-			if !ended(t) {
-				liveRepos[t.Repo] = true
-			}
-		}
-	}
 	open := map[string]bool{}
 	for _, w := range wss {
 		open[w.WorkspaceID] = true
-		why := ""
-		if task, ok := endedWS[w.WorkspaceID]; ok {
-			why = "it still belongs to " + task + ", which fleet has stopped or lost"
-		} else if s.SupLabel != "" && s.SelfWS != "" && w.Label == s.SupLabel && w.WorkspaceID != s.SelfWS {
-			why = "it is an extra supervisor workspace; this supervisor runs in " + s.SelfWS
-		} else if wt := w.Worktree; wt != nil && !wt.IsLinked && knownRepos[wt.CheckoutPath] && !liveRepos[wt.CheckoutPath] {
-			why = "herdr opens a workspace on a repo's main checkout when crewmates are created there, and none is using " + wt.CheckoutPath + " now"
-		}
-		if why == "" {
-			delete(s.sightings, w.WorkspaceID)
+	}
+	orphaned := map[string]bool{}
+	for _, o := range crew.Orphans(wss, ts, s.SelfWS, s.SupLabel) {
+		orphaned[o.ID] = true
+		if s.reported[o.ID] {
 			continue
 		}
-		if s.reported[w.WorkspaceID] {
+		if s.sightings[o.ID]++; s.sightings[o.ID] < 2 {
 			continue
 		}
-		if s.sightings[w.WorkspaceID]++; s.sightings[w.WorkspaceID] < 2 {
+		s.reported[o.ID] = true
+		if err := s.C.WorkspaceClose(o.ID); err != nil {
+			s.Log.Printf("audit: workspace %s (%s) is orphaned (%s) but closing it failed: %v", o.ID, o.Label, o.Why, err)
+			s.alertAll("fleet: leftover workspace "+o.ID,
+				"Workspace "+o.ID+" ("+o.Label+"): "+o.Why+".\nfleet could not close it ("+err.Error()+"); close it with `herdr workspace close "+o.ID+"`.", "request")
 			continue
 		}
-		s.reported[w.WorkspaceID] = true
-		s.Log.Printf("audit: workspace %s (%s) is orphaned: %s", w.WorkspaceID, w.Label, why)
-		s.alertAll("fleet: leftover workspace "+w.WorkspaceID,
-			"Workspace "+w.WorkspaceID+" ("+w.Label+"): "+why+".\nLook, then close it with `herdr workspace close "+w.WorkspaceID+"`.", "request")
+		s.Log.Printf("audit: closed orphaned workspace %s (%s): %s", o.ID, o.Label, o.Why)
+		s.alertAll("fleet: closed leftover workspace "+o.ID,
+			"Workspace "+o.ID+" ("+o.Label+") was not in use: "+o.Why+". fleet closed it.", "request")
 	}
 	for id := range s.sightings {
-		if !open[id] {
+		if !open[id] || !orphaned[id] {
 			delete(s.sightings, id)
 		}
 	}

@@ -237,6 +237,30 @@ func writeStatus(w *os.File, rows []crew.Row, asJSON bool) error {
 	return tw.Flush()
 }
 
+// clean closes the workspaces nobody is using; --dry-run only lists them.
+func clean(args []string) error {
+	fs := flag.NewFlagSet("clean", flag.ContinueOnError)
+	dry := fs.Bool("dry-run", false, "list the workspaces that would be closed, close nothing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	os_, err := crew.CleanWorkspaces(herdr.New(), "", "", *dry)
+	if err != nil {
+		return err
+	}
+	verb := "closed"
+	if *dry {
+		verb = "would close"
+	}
+	for _, o := range os_ {
+		fmt.Printf("%s %s (%s): %s\n", verb, o.ID, o.Label, o.Why)
+	}
+	if len(os_) == 0 {
+		fmt.Println("no unused workspaces")
+	}
+	return nil
+}
+
 // prune deletes old stopped-task records; --dry-run only lists them.
 func prune(args []string) error {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)

@@ -63,11 +63,22 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		return zero, fmt.Errorf("task %q already exists", s.Name)
 	}
 
+	before := repoWorkspaces(c, repo)
 	wt, err := c.WorktreeCreate(herdr.WorktreeCreateParams{
 		CWD: repo, Branch: s.Branch, Base: s.Base, Label: s.Name, TrustRepository: s.Trust,
 	})
 	if err != nil {
 		return zero, fmt.Errorf("create worktree: %w", err)
+	}
+	// A workspace on the main checkout that appeared with this worktree is fleet's to
+	// close later; one the captain already had open is not.
+	var repoWS string
+	if before != nil {
+		for id := range repoWorkspaces(c, repo) {
+			if !before[id] {
+				repoWS = id
+			}
+		}
 	}
 	base, baseRev := resolveBase(repo, s.Base)
 	if s.TrustClaude && s.Kind == "claude" {
@@ -77,7 +88,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		}
 	}
 	t := ledger.Task{
-		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Mate: s.Mate, PortBase: nextPortBase(), Branch: s.Branch, Worktree: wt.Worktree.Path,
+		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Mate: s.Mate, PortBase: nextPortBase(), Branch: s.Branch, Worktree: wt.Worktree.Path, RepoWS: repoWS,
 		WorkspaceID: wt.Workspace.WorkspaceID, PaneID: wt.RootPane.PaneID,
 		Base: base, BaseRev: baseRev, Brief: s.Brief, CreatedAt: time.Now().UTC(),
 	}

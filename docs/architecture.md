@@ -61,8 +61,9 @@ lists herdr's workspaces and looks for ones fleet no longer accounts for: an ext
 workspace labelled `fleet-supervisor` (this supervisor knows its own from
 `HERDR_WORKSPACE_ID`), or the workspace of a task the ledger says is stopped or
 exited. A workspace must look orphaned in two audits in a row, so one caught
-mid-`fleet stop` is not reported. Each is reported once, by toast and to every
-first mate the ledger knows; fleet never closes them itself. Workspaces that
+mid-`fleet stop` is not reported. Each is closed (the workspace only, never a worktree) and reported once, by
+toast and to every first mate the ledger knows. `fleet clean` runs the same
+rules on demand (`crew.Orphans`). Workspaces that
 match neither rule (the captain's own) are left alone.
 
 ## Stopping a crewmate
@@ -73,6 +74,11 @@ it stopped and removes the worktree. If git no longer knows the worktree (remove
 by hand, or a removal that failed part way) there is nothing to protect, so it
 closes the workspace instead and warns. Any other removal failure restores the
 previous state and shows herdr's error.
+
+Spawn also notes the workspace herdr opens on the repo's main checkout beside a
+new worktree (`repo_ws` in the ledger; one the captain already had open is never
+recorded). When `crew.Stop` finishes and no live task is left on that repo, it
+closes the recorded workspace.
 
 ## Why per-pane status subscriptions
 

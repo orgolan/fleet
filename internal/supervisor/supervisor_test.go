@@ -441,11 +441,14 @@ func TestAuditReportsExtraSupervisorWorkspaceOnceToTheFirstMate(t *testing.T) {
 	})
 	eventually(t, "first mate told", func() bool {
 		p, _ := srv.Snapshot()
-		return len(p) == 1 && strings.Contains(p[0], "herdr workspace close wold")
+		return len(p) == 1 && strings.Contains(p[0], "fleet closed it")
 	})
 	time.Sleep(200 * time.Millisecond) // more audits run: still reported once
 	if _, n := srv.Snapshot(); len(n) != 1 {
 		t.Fatalf("notifications = %v", n)
+	}
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wold" {
+		t.Fatalf("closed = %v", cl) // its own workspace stays
 	}
 }
 
@@ -458,6 +461,9 @@ func TestAuditReportsWorkspaceOfStoppedTask(t *testing.T) {
 		_, n := srv.Snapshot()
 		return len(n) == 1 && strings.Contains(n[0], "leftover workspace wdead")
 	})
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wdead" {
+		t.Fatalf("closed = %v", cl) // somebody's own workspace stays
+	}
 }
 
 // A workspace that disappears between audits (a stop in progress) is not reported.
@@ -538,6 +544,9 @@ func TestAuditReportsRepoWorkspaceOnceNoCrewmateUsesTheRepo(t *testing.T) {
 		_, n := srv.Snapshot()
 		return len(n) == 1 && strings.Contains(n[0], "leftover workspace wrepo")
 	})
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wrepo" {
+		t.Fatalf("closed = %v", cl)
+	}
 }
 
 func TestAuditLeavesRepoWorkspaceWhileACrewmateUsesTheRepo(t *testing.T) {

@@ -27,6 +27,7 @@ type Task struct {
 	PortBase    int       `json:"port_base,omitempty"` // first of ten ports reserved for this task's servers
 	Mate        string    `json:"mate,omitempty"`      // pane of the first mate that spawned it; the supervisor prompts it
 	Worktree    string    `json:"worktree"`
+	RepoWS      string    `json:"repo_ws,omitempty"` // workspace herdr opened on the repo's main checkout when creating this worktree; closed with the last crewmate
 	WorkspaceID string    `json:"workspace_id"`
 	PaneID      string    `json:"pane_id"`
 	Brief       string    `json:"brief"`

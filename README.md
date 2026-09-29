@@ -94,6 +94,7 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet resume <name>... \| --all` | Relaunch crewmates whose panes are gone, in their existing worktrees, continuing the agent's last session. |
 | `fleet project agent-args <name> [args...\|--clear]` | Default native agent arguments for every spawn in the project. |
 | `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. Its last output is saved for `fleet result`. |
+| `fleet clean [--dry-run]` | Close workspaces nobody is using: those of stopped or exited tasks and herdr's leftover workspace on a repo's main checkout. Worktrees and records are untouched; the captain's own workspaces are never matched. The supervisor does the same on its own audits. |
 | `fleet prune [--older-than 7d] [--dry-run] [name...]` | Delete the records (and saved output) of tasks stopped longer ago than that. Live and exited tasks are never pruned. |
 | `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in its own `fleet-supervisor` herdr workspace). `spawn` does this automatically. |
 | `fleet supervise [--poll 20s]` | Event-driven supervisor; single instance. |

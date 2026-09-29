@@ -37,6 +37,7 @@ fleet keys <name> <key...>   answer a blocked prompt (enter, esc, ctrl+c)
 fleet focus <name>
 fleet stop <name> [--force]  remove worktree + workspace, mark stopped
 fleet project add <name> <path> [--base REF] | list | show <name> | note <name> <text...> | agent-args <name> [args...|--clear] | rm <name>
+fleet clean [--dry-run]      close unused workspaces (the supervisor also does this itself)
 fleet prune [--older-than 7d] [--dry-run]   delete old stopped-task records; preview first
 fleet doctor | ping | events | tasks
 ```

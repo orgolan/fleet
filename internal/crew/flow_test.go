@@ -232,3 +232,54 @@ func TestStopUnmanagedKeepsUnmergedOrDirtyWorkUnlessForced(t *testing.T) {
 		t.Fatal("forced stop left the worktree")
 	}
 }
+
+// herdr opens a workspace on the repo's main checkout beside a crewmate's
+// worktree; stopping the last live crewmate on the repo closes it.
+func TestStopClosesRepoWorkspaceWithLastCrewmate(t *testing.T) {
+	srv, c := env(t)
+	repo, _, task := mergeRepo(t)
+	gitc(t, repo, "merge", "-q", "--no-ff", "-m", "Merge x", "fleet/x")
+	task.Repo, task.RepoWS = repo, "wr"
+	save(t, task)
+	other := ledger.Task{Name: "y", Kind: "claude", Repo: repo, PaneID: "w:p9", WorkspaceID: "wy", State: "working"}
+	save(t, other)
+	srv.AddRepoWorkspace("wr", repo)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	srv.SetWorkspace("w:p1", "wx")
+	if err := Stop(c, "x", false); err != nil {
+		t.Fatal(err)
+	}
+	if cl := srv.ClosedWorkspaces(); len(cl) != 0 {
+		t.Fatalf("closed %v while y is still live", cl)
+	}
+	if err := ledger.Update("y", func(t *ledger.Task) { t.State = "exited" }); err != nil {
+		t.Fatal(err)
+	}
+	closeRepoWorkspace(c, "x")
+	if cl := srv.ClosedWorkspaces(); len(cl) != 1 || cl[0] != "wr" {
+		t.Fatalf("closed = %v", cl)
+	}
+}
+
+func TestCleanWorkspacesClosesOnlyUnusedOnes(t *testing.T) {
+	srv, c := env(t)
+	save(t, ledger.Task{Name: "dead", Kind: "claude", Repo: "/proj/repo", PaneID: "w:p1", WorkspaceID: "wdead", State: "stopped"})
+	srv.AddWorkspace("wdead", "dead")
+	srv.AddWorkspace("wmine", "captain's own")
+	srv.AddRepoWorkspace("wrepo", "/proj/repo")
+	got, err := CleanWorkspaces(c, "", "", true)
+	if err != nil || len(got) != 2 || len(srv.ClosedWorkspaces()) != 0 {
+		t.Fatalf("dry run: %v %v closed=%v", got, err, srv.ClosedWorkspaces())
+	}
+	if _, err := CleanWorkspaces(c, "", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if cl := srv.ClosedWorkspaces(); len(cl) != 2 {
+		t.Fatalf("closed = %v", cl)
+	}
+	for _, id := range srv.ClosedWorkspaces() {
+		if id == "wmine" {
+			t.Fatal("closed the captain's own workspace")
+		}
+	}
+}
