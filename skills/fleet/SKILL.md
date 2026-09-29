@@ -23,7 +23,7 @@ report its findings; do not try to fix the environment silently.
 ## Commands
 
 ```
-fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]
+fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--with-dirty] [--one-shot] [--keep] [--trust-repository] <name> [brief...] [-- agent-args...]
 fleet project trust <name>  (captain's decision) trust the project folder in Claude Code
 fleet up                     ensure the supervisor runs (spawn does this itself; toasts the captain on blocked / turn finished / exited)
 fleet status [--json]        tasks merged with live herdr status
@@ -75,9 +75,14 @@ prune with `--edit N` and `--rm N` (numbers are in `fleet project show`); if
    If the supervisor toasts that a crewmate "may not have its brief", read its
    pane and resend with `fleet send`; do not resend blindly.
 6. **Follow up.** Use `fleet send <name> ...` for corrections or next steps.
-7. **Wrap up.** Read the report first (`fleet result <name>`); `stop` saves it,
-   but relay what matters to the captain. Only after the work is merged or the
-   captain approves, run `fleet stop <name>`. Use `--force` only if the captain agrees to discard
+7. **Wrap up.** Finished crewmates dispose themselves: when their branch is
+   merged into its base (the captain merges), or right after their first turn if
+   spawned with `--one-shot`. Use `--one-shot` for reviews, investigations and
+   reports (tasks that end in a report, not commits); use `--keep` for a crewmate
+   the captain will keep talking to. Read the report first (`fleet result <name>`)
+   and relay what matters. Do not `fleet stop` by hand unless the captain asks or
+   a toast says a crewmate finished but was not disposed (it has uncommitted or
+   unmerged work: show the captain, and stop it only when they agree). Use `--force` only if the captain agrees to discard
    uncommitted work.
 
 ## Writing a good brief
@@ -89,6 +94,8 @@ The crewmate has no memory of this conversation. The brief must be self-containe
 - Relevant context: conventions, commands to build/test, links or paths.
 - Definition of done: tests that must pass, what to commit on its branch.
 - Constraints: no pushing, no force-push, no edits outside the worktree.
+  Throwaway helper files (stubs, scratch data) belong outside the worktree or must be
+  deleted before finishing: a dirty worktree is never disposed automatically.
   Never let a crewmate set or guess a git identity: if commits fail for lack of one,
   it should stop and report, and you tell the captain.
 - What to report at the end: a short summary of changes and anything unresolved.

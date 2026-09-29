@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -232,5 +234,138 @@ func TestReceivedBriefDoesNotWarn(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	if _, n := srv.Snapshot(); len(n) != 0 {
 		t.Fatalf("unexpected notifications: %v", n)
+	}
+}
+
+// --- automatic disposal of finished crewmates ---
+
+func run(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// crewRepo makes a repo on main, plus a linked worktree on branch fleet/x with one commit of its own.
+func crewRepo(t *testing.T) (repo, wt, baseRev string) {
+	t.Helper()
+	repo = t.TempDir()
+	run(t, repo, "init", "-q", "-b", "main")
+	os.WriteFile(repo+"/a.txt", []byte("a\n"), 0o644)
+	run(t, repo, "add", ".")
+	run(t, repo, "commit", "-q", "-m", "base")
+	baseRev = run(t, repo, "rev-parse", "HEAD")
+	wt = t.TempDir() + "/wt"
+	run(t, repo, "worktree", "add", "-q", "-b", "fleet/x", wt)
+	os.WriteFile(wt+"/b.txt", []byte("b\n"), 0o644)
+	run(t, wt, "add", ".")
+	run(t, wt, "commit", "-q", "-m", "crew work")
+	return repo, wt, baseRev
+}
+
+func disposeTask(repo, wt, baseRev string) ledger.Task {
+	return ledger.Task{Name: "x", Kind: "claude", Repo: repo, Branch: "fleet/x", Base: "main", BaseRev: baseRev,
+		Worktree: wt, WorkspaceID: "wx", PaneID: "w:p1", Brief: "Review the welcome page carefully", BriefSent: true, CreatedAt: time.Now()}
+}
+
+func removed(srv *fake.Server) []string { _, _, rm, _ := srv.Recorded(); return rm }
+
+func TestMergedCrewmateIsDisposed(t *testing.T) {
+	repo, wt, base := crewRepo(t)
+	run(t, repo, "merge", "-q", "--no-ff", "fleet/x", "-m", "merge")
+	srv, _ := setupWith(t, disposeTask(repo, wt, base), nil)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	srv.SetWorkspace("w:p1", "wx")
+	eventually(t, "worktree removed", func() bool { return len(removed(srv)) == 1 })
+	if got, _ := ledger.Load("x"); got.State != "stopped" {
+		t.Fatalf("state = %q", got.State)
+	}
+	eventually(t, "disposed notification", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) > 0 && strings.Contains(n[len(n)-1], "disposed")
+	})
+}
+
+func TestUnmergedCrewmateIsKept(t *testing.T) {
+	repo, wt, base := crewRepo(t) // never merged
+	srv, _ := setupWith(t, disposeTask(repo, wt, base), nil)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	time.Sleep(300 * time.Millisecond)
+	if rm := removed(srv); len(rm) != 0 {
+		t.Fatalf("unmerged crewmate was disposed: %v", rm)
+	}
+}
+
+// A crewmate that has not moved past its base must not count as merged (it would be
+// disposed the moment it started).
+func TestFreshCrewmateIsNotMerged(t *testing.T) {
+	repo, wt, _ := crewRepo(t)
+	tip := run(t, repo, "rev-parse", "fleet/x")
+	srv, _ := setupWith(t, disposeTask(repo, wt, tip), nil)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	time.Sleep(300 * time.Millisecond)
+	if rm := removed(srv); len(rm) != 0 {
+		t.Fatalf("fresh crewmate was disposed: %v", rm)
+	}
+}
+
+func TestMergedButDirtyIsNotDisposed(t *testing.T) {
+	repo, wt, base := crewRepo(t)
+	run(t, repo, "merge", "-q", "--no-ff", "fleet/x", "-m", "merge")
+	os.WriteFile(wt+"/wip.txt", []byte("unsaved\n"), 0o644)
+	srv, _ := setupWith(t, disposeTask(repo, wt, base), nil)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	eventually(t, "not-disposed notification", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "not disposed")
+	})
+	if rm := removed(srv); len(rm) != 0 {
+		t.Fatalf("dirty worktree was disposed: %v", rm)
+	}
+}
+
+func TestKeepFlagPreventsDisposal(t *testing.T) {
+	repo, wt, base := crewRepo(t)
+	run(t, repo, "merge", "-q", "--no-ff", "fleet/x", "-m", "merge")
+	task := disposeTask(repo, wt, base)
+	task.Keep = true
+	srv, _ := setupWith(t, task, nil)
+	srv.SetAgent("x", "w:p1", "idle", "")
+	time.Sleep(300 * time.Millisecond)
+	if rm := removed(srv); len(rm) != 0 {
+		t.Fatalf("kept crewmate was disposed: %v", rm)
+	}
+}
+
+// One-shot: disposed when its first turn ends, but only if it really received its brief.
+func oneShot(t *testing.T, screen string) (*fake.Server, ledger.Task) {
+	t.Helper()
+	repo, wt, _ := crewRepo(t)
+	run(t, wt, "reset", "-q", "--hard", "HEAD~1") // a report task made no commits; the worktree is clean
+	task := ledger.Task{Name: "x", Kind: "claude", Repo: repo, Branch: "fleet/x", Worktree: wt, WorkspaceID: "wx", PaneID: "w:p1",
+		Brief: "Review the welcome page carefully", BriefSent: true, OneShot: true, CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, nil)
+	srv.SetAgent("x", "w:p1", "working", "")
+	srv.SetWorkspace("w:p1", "wx")
+	srv.Emit("pane.agent_status_changed", "w:p1", map[string]any{"workspace_id": "wx", "agent_status": "working"})
+	time.Sleep(100 * time.Millisecond)
+	srv.SetAgent("x", "w:p1", "idle", screen)
+	srv.Emit("pane.agent_status_changed", "w:p1", map[string]any{"workspace_id": "wx", "agent_status": "idle"})
+	return srv, task
+}
+
+func TestOneShotIsDisposedWhenItsTurnEnds(t *testing.T) {
+	srv, _ := oneShot(t, "> Review the welcome\n  page carefully\nHere is my report.")
+	eventually(t, "one-shot disposed", func() bool { return len(removed(srv)) == 1 })
+}
+
+func TestOneShotWithoutItsBriefIsNotDisposed(t *testing.T) {
+	srv, _ := oneShot(t, "an empty prompt")
+	time.Sleep(400 * time.Millisecond)
+	if rm := removed(srv); len(rm) != 0 {
+		t.Fatalf("a crewmate that never got its brief was disposed: %v", rm)
 	}
 }

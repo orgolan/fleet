@@ -81,7 +81,7 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet ping` | Check the herdr socket answers. |
 | `fleet events` | Stream herdr events (debugging). |
 | `fleet tasks` | List recorded tasks from the ledger. |
-| `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
+| `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--with-dirty] [--one-shot] [--keep] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
 | `fleet project new\|clone\|add\|trust\|list\|show\|note\|rm` | Create, clone or register the repos in scope, and keep notes on them (see Projects). |
 | `fleet status [--json]` | Tasks merged with live herdr status. |
 | `fleet send <name> <text...>` | Prompt a crewmate. Refuses if it is blocked. |
@@ -239,6 +239,25 @@ Resolve it in the herdr UI (`fleet focus <name>`) or, only if you approve, with
 `fleet keys <name> enter` on "Yes, I trust this folder". When the agent next goes
 idle the supervisor delivers the brief automatically. `--trust-repository` on
 `spawn` is an explicit opt-in you choose; fleet never decides it for you.
+
+### Finished crewmates are disposed automatically
+
+An idle agent is not necessarily finished (it may be waiting for your answer), so
+fleet disposes a crewmate in only two unambiguous cases, and only when it is idle
+and its worktree is clean:
+
+- **Its work is merged.** Its branch has commits of its own and is now contained
+  in its base (`main`, or whatever it was cut from). Merge `fleet/<name>` and the
+  crewmate goes away on its own, within about 20 seconds.
+- **It is a one-shot task** (`fleet spawn --one-shot`, meant for reviews and
+  reports) and its first turn just ended, and its output shows it really received
+  the brief.
+
+Disposal is `fleet stop` without `--force`: the report is saved (`fleet result`),
+the worktree and workspace are removed, and you get a toast. If the worktree has
+uncommitted changes or unmerged work, nothing is removed and the toast says why.
+`--keep` on spawn opts a crewmate out. Crewmates spawned before this feature have
+no recorded base and are not auto-disposed; use `fleet stop`.
 
 ### Uncommitted work
 

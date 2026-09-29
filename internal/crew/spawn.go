@@ -29,6 +29,8 @@ type Spec struct {
 	Brief   string   // initial prompt; empty starts the agent idle
 	Args    []string // native agent arguments
 	Trust   bool     // pass trust_repository for the worktree request
+	OneShot bool     // dispose automatically when its first turn finishes
+	Keep    bool     // never dispose automatically
 	Dirty   bool     // copy the repo's uncommitted changes into the new worktree
 	// TrustClaude marks the new worktree trusted in Claude Code, because the captain
 	// trusted the project when registering it.
@@ -66,6 +68,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 	if err != nil {
 		return zero, fmt.Errorf("create worktree: %w", err)
 	}
+	base, baseRev := resolveBase(repo, s.Base)
 	if s.TrustClaude && s.Kind == "claude" {
 		// Best effort: if it fails the crewmate simply stops at the trust prompt for the captain.
 		if err := claudetrust.Trust(wt.Worktree.Path); err != nil {
@@ -73,9 +76,9 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		}
 	}
 	t := ledger.Task{
-		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, Branch: s.Branch, Worktree: wt.Worktree.Path,
+		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, OneShot: s.OneShot, Keep: s.Keep, Branch: s.Branch, Worktree: wt.Worktree.Path,
 		WorkspaceID: wt.Workspace.WorkspaceID, PaneID: wt.RootPane.PaneID,
-		Brief: s.Brief, CreatedAt: time.Now().UTC(),
+		Base: base, BaseRev: baseRev, Brief: s.Brief, CreatedAt: time.Now().UTC(),
 	}
 	// Record before starting the agent so a failure leaves a trace to reconcile.
 	if err := ledger.Save(t); err != nil {

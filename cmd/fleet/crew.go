@@ -25,6 +25,8 @@ func spawn(args []string) error {
 	proj := fs.String("project", "", "registered project (see fleet project); sets repo and base, adds its notes to the brief")
 	fs.StringVar(&spec.Branch, "branch", "", "branch name (default fleet/<name>)")
 	fs.StringVar(&spec.Base, "base", "", "base ref for the new branch")
+	fs.BoolVar(&spec.OneShot, "one-shot", false, "for reports and reviews: dispose automatically when its first turn finishes")
+	fs.BoolVar(&spec.Keep, "keep", false, "never dispose this crewmate automatically")
 	fs.BoolVar(&spec.Dirty, "with-dirty", false, "copy the repo's uncommitted changes into the crewmate's worktree")
 	fs.BoolVar(&spec.Trust, "trust-repository", false, "grant per-request git trust (only for repos you verified)")
 	// Everything after a literal "--" is passed to the agent as native arguments.

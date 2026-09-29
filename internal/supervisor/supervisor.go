@@ -32,18 +32,19 @@ type Supervisor struct {
 	Verify time.Duration
 	ctx    context.Context
 
-	last    map[string]herdr.AgentStatus // task name -> last handled status
-	seen    map[string]bool              // task name -> was ever observed live
-	watches map[string]context.CancelFunc
-	status  chan herdr.AgentStatusChanged
+	last      map[string]herdr.AgentStatus // task name -> last handled status
+	seen      map[string]bool              // task name -> was ever observed live
+	watches   map[string]context.CancelFunc
+	status    chan herdr.AgentStatusChanged
+	noDispose map[string]bool // tasks fleet declined to dispose (say why once, then leave them)
 }
 
 func New(c *herdr.Client, l *log.Logger) *Supervisor {
 	return &Supervisor{
 		C: c, Log: l, Poll: 20 * time.Second, Settle: 4 * time.Second, Verify: 25 * time.Second,
 		last: map[string]herdr.AgentStatus{}, seen: map[string]bool{},
-		watches: map[string]context.CancelFunc{},
-		status:  make(chan herdr.AgentStatusChanged, 64),
+		watches: map[string]context.CancelFunc{}, noDispose: map[string]bool{},
+		status: make(chan herdr.AgentStatusChanged, 64),
 	}
 }
 
@@ -168,6 +169,7 @@ func (s *Supervisor) reconcile(ctx context.Context) {
 			s.seen[t.Name] = true
 			s.watch(ctx, t.PaneID)
 			s.handle(t, a.Status)
+			s.maybeDispose(t, a.Status, false)
 		} else if s.seen[t.Name] {
 			s.exited(t)
 		}
@@ -233,8 +235,12 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 		}
 		s.setState(t.Name, string(st))
 		if prev == herdr.Working {
-			s.notify("fleet: "+t.Name+" finished a turn", s.tail(t.Name), "done")
+			if !s.maybeDispose(t, st, true) {
+				s.notify("fleet: "+t.Name+" finished a turn", s.tail(t.Name), "done")
+			}
+			return
 		}
+		s.maybeDispose(t, st, false)
 	default:
 		s.setState(t.Name, string(st))
 	}
@@ -302,12 +308,7 @@ func (s *Supervisor) verify(t ledger.Task) {
 	if !s.stillReady(t.PaneID) {
 		return // working, blocked or gone: nothing to warn about
 	}
-	txt, err := s.C.AgentRead(t.Name, 400)
-	if err != nil {
-		s.Log.Printf("%s: verify brief: %v", t.Name, err)
-		return
-	}
-	if strings.Contains(squash(txt), snippet(t.Brief)) || strings.Contains(txt, "Pasted text") {
+	if s.briefVisible(t) {
 		return
 	}
 	s.Log.Printf("%s: brief may not have been received", t.Name)
@@ -373,4 +374,62 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+// maybeDispose stops a crewmate that is finished, meaning one of:
+//   - its work is merged: its branch has commits of its own and is now contained in
+//     its base (the captain merged it), or
+//   - it is a one-shot task (a report, a review) and its first turn just ended
+//     (turnEnded) and the agent really received its brief.
+//
+// Either way it must be idle and its worktree clean. crew.Stop refuses a dirty or
+// unmerged worktree, so unfinished work is never discarded; the captain is told
+// instead. It reports whether the crewmate was disposed.
+func (s *Supervisor) maybeDispose(t ledger.Task, st herdr.AgentStatus, turnEnded bool) bool {
+	if st != herdr.Idle && st != herdr.Done || s.noDispose[t.Name] {
+		return false
+	}
+	cur, err := ledger.Load(t.Name)
+	if err != nil || ended(cur) || cur.Keep || !cur.BriefSent {
+		return false
+	}
+	reason := ""
+	switch merged, _ := crew.Merged(cur); {
+	case merged:
+		reason = "its branch is merged into " + cur.Base
+	case cur.OneShot && turnEnded && s.briefVisible(cur):
+		reason = "it finished its one-shot task"
+	default:
+		return false
+	}
+	if clean, err := crew.Clean(cur.Worktree); err != nil || !clean {
+		s.noDispose[t.Name] = true
+		s.notify("fleet: "+t.Name+" finished, not disposed", "Reason to dispose: "+reason+", but its worktree has uncommitted changes. Look, then `fleet stop "+t.Name+"`.", "request")
+		return false
+	}
+	if err := crew.Stop(s.C, t.Name, false); err != nil {
+		s.noDispose[t.Name] = true
+		s.Log.Printf("%s: not disposed: %v", t.Name, err)
+		s.notify("fleet: "+t.Name+" finished, not disposed", firstLine(err.Error())+"\nReview it, then `fleet stop "+t.Name+"`.", "request")
+		return false
+	}
+	delete(s.last, t.Name)
+	s.unwatch(t.PaneID)
+	s.Log.Printf("%s: disposed (%s)", t.Name, reason)
+	s.notify("fleet: "+t.Name+" disposed", "Finished: "+reason+". Its report is kept: `fleet result "+t.Name+"`.", "done")
+	return true
+}
+
+// briefVisible reports whether the agent's output shows its brief was received.
+func (s *Supervisor) briefVisible(t ledger.Task) bool {
+	txt, err := s.C.AgentRead(t.Name, 400)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(squash(txt), snippet(t.Brief)) || strings.Contains(txt, "Pasted text")
+}
+
+func firstLine(s string) string {
+	l, _, _ := strings.Cut(s, "\n")
+	return l
 }

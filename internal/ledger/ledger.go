@@ -20,6 +20,10 @@ type Task struct {
 	Repo        string    `json:"repo"`
 	Project     string    `json:"project,omitempty"` // registered project it was spawned for, if any
 	Branch      string    `json:"branch"`
+	Base        string    `json:"base,omitempty"`     // ref the branch was cut from and will merge back into
+	BaseRev     string    `json:"base_rev,omitempty"` // commit Base pointed at when the crewmate was spawned
+	OneShot     bool      `json:"one_shot,omitempty"` // report-style task: dispose when its first turn finishes
+	Keep        bool      `json:"keep,omitempty"`     // never dispose automatically
 	Worktree    string    `json:"worktree"`
 	WorkspaceID string    `json:"workspace_id"`
 	PaneID      string    `json:"pane_id"`
