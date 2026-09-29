@@ -90,6 +90,7 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet keys <name> <key...>` | Captain answers a blocked prompt, e.g. `enter`, `esc`, `ctrl+c`. |
 | `fleet focus <name>` | Focus the crewmate in the herdr UI. |
 | `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. Its last output is saved for `fleet result`. |
+| `fleet prune [--older-than 7d] [--dry-run]` | Delete the records (and saved output) of tasks stopped longer ago than that. Live and exited tasks are never pruned. |
 | `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in its own `fleet-supervisor` herdr workspace). `spawn` does this automatically. |
 | `fleet supervise [--poll 20s]` | Event-driven supervisor; single instance. |
 | `fleet doctor` | Environment checklist. |

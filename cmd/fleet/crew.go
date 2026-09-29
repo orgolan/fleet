@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/orgolan/fleet/internal/crew"
 	"github.com/orgolan/fleet/internal/herdr"
@@ -221,4 +223,55 @@ func writeStatus(w *os.File, rows []crew.Row, asJSON bool) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.Name, r.Kind, r.State, r.Live, r.WorkspaceID, r.PaneID, r.Brief)
 	}
 	return tw.Flush()
+}
+
+// prune deletes old stopped-task records; --dry-run only lists them.
+func prune(args []string) error {
+	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
+	older := fs.String("older-than", "7d", "only tasks stopped longer ago than this (e.g. 12h, 7d; 0 for all stopped)")
+	dry := fs.Bool("dry-run", false, "list what would be deleted, delete nothing")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: fleet prune [--older-than 7d] [--dry-run]")
+	}
+	d, err := parseAge(*older)
+	if err != nil {
+		return err
+	}
+	ts, err := crew.Prune(d, *dry, time.Now())
+	if err != nil {
+		return err
+	}
+	verb := "pruned"
+	if *dry {
+		verb = "would prune"
+	}
+	for _, t := range ts {
+		fmt.Printf("%s %s\n", verb, t.Name)
+	}
+	if len(ts) == 0 {
+		fmt.Println("nothing to prune")
+	}
+	return nil
+}
+
+// parseAge accepts Go durations plus a "d" suffix for days.
+func parseAge(s string) (time.Duration, error) {
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.ParseFloat(days, 64)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("bad --older-than %q", s)
+		}
+		return time.Duration(n * float64(24*time.Hour)), nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 {
+		if s == "0" {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("bad --older-than %q (try 12h, 7d, 0)", s)
+	}
+	return d, nil
 }

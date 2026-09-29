@@ -27,6 +27,7 @@ commands:
   keys       send keys to a crewmate, e.g. to answer a prompt: fleet keys <name> <key...>
   focus      focus a crewmate in the herdr UI: fleet focus <name>
   stop       remove a crewmate's worktree and mark it stopped: fleet stop <name> [--force]
+  prune      delete records of old stopped tasks: fleet prune [--older-than 7d] [--dry-run]
   supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
   up         ensure a supervisor is running (in a background herdr pane)
   doctor     check the environment
@@ -48,6 +49,7 @@ var commands = map[string]func(args []string) error{
 	"keys":      keys,
 	"focus":     focus,
 	"stop":      stop,
+	"prune":     prune,
 	"supervise": supervise,
 	"up":        up,
 	"doctor":    doctor,

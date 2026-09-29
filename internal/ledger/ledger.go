@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -209,4 +210,20 @@ func LoadResult(name string) (string, error) {
 	}
 	b, err := os.ReadFile(p)
 	return string(b), err
+}
+
+// Remove deletes a task's record and everything kept beside it (saved output,
+// lock files). It does not touch worktrees or panes.
+func Remove(name string) error {
+	p, err := path(name)
+	if err != nil {
+		return err
+	}
+	base := strings.TrimSuffix(p, ".json")
+	for _, f := range []string{p, base + ".result.txt", p + ".lock", p + ".rw"} {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }

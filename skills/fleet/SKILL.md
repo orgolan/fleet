@@ -33,6 +33,7 @@ fleet keys <name> <key...>   answer a blocked prompt (enter, esc, ctrl+c)
 fleet focus <name>
 fleet stop <name> [--force]  remove worktree + workspace, mark stopped
 fleet project add <name> <path> [--base REF] | list | show <name> | note <name> <text...> | rm <name>
+fleet prune [--older-than 7d] [--dry-run]   delete old stopped-task records; preview first
 fleet doctor | ping | events | tasks
 ```
 
