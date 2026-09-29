@@ -8,6 +8,7 @@ import (
 
 	"fleet/internal/herdr"
 	"fleet/internal/ledger"
+	"fleet/internal/projects"
 	"fleet/internal/supervisor"
 )
 
@@ -63,6 +64,14 @@ func doctor(args []string) error {
 		check(true, fmt.Sprintf("supervisor running (pid %d)", supervisor.ReadPID(dir)))
 	} else {
 		fmt.Println("warn  supervisor not running: start it with `fleet up`")
+	}
+
+	if pd, err := projects.Dir(); err != nil {
+		fmt.Printf("warn  projects dir: %v\n", err)
+	} else if ps, err := projects.List(); err != nil {
+		check(false, fmt.Sprintf("projects dir %s: %v", pd, err))
+	} else {
+		fmt.Printf("info  projects dir %s: %d registered\n", pd, len(ps))
 	}
 
 	for _, name := range agentCLIs {

@@ -10,6 +10,7 @@ import (
 	"fleet/internal/crew"
 	"fleet/internal/herdr"
 	"fleet/internal/ledger"
+	"fleet/internal/projects"
 )
 
 func spawn(args []string) error {
@@ -17,6 +18,7 @@ func spawn(args []string) error {
 	spec := crew.Spec{}
 	fs.StringVar(&spec.Kind, "kind", "claude", "herdr agent kind")
 	fs.StringVar(&spec.Repo, "repo", ".", "path inside the git repo")
+	proj := fs.String("project", "", "registered project (see fleet project); sets repo and base, adds its notes to the brief")
 	fs.StringVar(&spec.Branch, "branch", "", "branch name (default fleet/<name>)")
 	fs.StringVar(&spec.Base, "base", "", "base ref for the new branch")
 	fs.BoolVar(&spec.Trust, "trust-repository", false, "grant per-request git trust (only for repos you verified)")
@@ -36,6 +38,11 @@ func spawn(args []string) error {
 	}
 	spec.Name = fs.Arg(0)
 	spec.Brief = strings.Join(fs.Args()[1:], " ")
+	if *proj != "" {
+		if err := applyProject(&spec, *proj); err != nil {
+			return err
+		}
+	}
 	t, err := crew.Spawn(herdr.New(), spec)
 	if t.Name != "" {
 		// Print the task as stored (with its updated_at), not Spawn's copy.
@@ -50,6 +57,26 @@ func spawn(args []string) error {
 		return err
 	}
 	return printJSON(t)
+}
+
+// applyProject resolves --project into repo, base and the brief's notes section.
+func applyProject(spec *crew.Spec, name string) error {
+	p, err := projects.Get(name)
+	if err != nil {
+		return err
+	}
+	spec.Repo = p.Path
+	if spec.Base == "" {
+		spec.Base = p.Base
+	}
+	notes, err := projects.Notes(name)
+	if err != nil {
+		return err
+	}
+	if notes = strings.TrimSpace(notes); notes != "" && spec.Brief != "" {
+		spec.Brief += "\n\nProject notes (" + name + "):\n" + notes
+	}
+	return nil
 }
 
 func tasks() error {

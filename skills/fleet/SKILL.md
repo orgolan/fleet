@@ -23,7 +23,7 @@ report its findings; do not try to fix the environment silently.
 ## Commands
 
 ```
-fleet spawn [--kind claude] [--repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]
+fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]
 fleet up                     ensure the supervisor runs (toasts the captain on blocked / turn finished / exited)
 fleet status [--json]        tasks merged with live herdr status
 fleet read <name> [--lines N]
@@ -31,8 +31,20 @@ fleet send <name> <text...>  refuses if the crewmate is blocked
 fleet keys <name> <key...>   answer a blocked prompt (enter, esc, ctrl+c)
 fleet focus <name>
 fleet stop <name> [--force]  remove worktree + workspace, mark stopped
+fleet project add <name> <path> [--base REF] | list | show <name> | note <name> <text...> | rm <name>
 fleet doctor | ping | events | tasks
 ```
+
+## Projects and memory
+
+The captain's repos in scope are registered with `fleet project`. Run
+`fleet project list` at the start of a job, and `fleet project show <name>` for
+the notes on any project you are about to brief. Prefer `fleet spawn --project
+<name>`, which sets the repo and base and appends the project's notes to the
+brief. If the job names a repo that is not registered, ask the captain before
+adding it. After a crewmate finishes, record anything worth remembering with
+`fleet project note <name> "..."` (commands that work, gotchas, outcomes).
+Never write secrets into notes.
 
 ## Workflow
 

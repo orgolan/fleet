@@ -59,7 +59,8 @@ fleet stop fix-login       # after its branch fleet/fix-login is merged or appro
 | `fleet ping` | Check the herdr socket answers. |
 | `fleet events` | Stream herdr events (debugging). |
 | `fleet tasks` | List recorded tasks from the ledger. |
-| `fleet spawn [--kind claude] [--repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
+| `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
+| `fleet project add\|list\|show\|note\|rm` | Registry of repos in scope, with per-project notes (see Projects). |
 | `fleet status [--json]` | Tasks merged with live herdr status. |
 | `fleet send <name> <text...>` | Prompt a crewmate. Refuses if it is blocked. |
 | `fleet read <name> [--lines N]` | Tail of a crewmate's output. |
@@ -71,6 +72,21 @@ fleet stop fix-login       # after its branch fleet/fix-login is merged or appro
 | `fleet doctor` | Environment checklist. |
 
 Agent names must match `[a-z][a-z0-9_-]{0,31}` (herdr's rule).
+
+## Projects
+
+`projects/<name>/project.json` (repo path, default base ref) and
+`projects/<name>/notes.md` (conventions, test commands, gotchas) record which
+repos are in scope. Manage them with `fleet project add|list|show|note|rm`.
+`fleet spawn --project <name>` uses the registered repo and base and appends the
+notes to the crewmate's brief, so the first mate and its crew share context.
+
+Only `projects/README.md` and `projects/_example/` are tracked; real entries are
+gitignored so your repo list stays local. The folder is `$FLEET_PROJECTS`, else
+`projects/` in the checkout the binary runs from (`bin/fleet`), else
+`$FLEET_HOME/projects`. A binary copied to `~/.local/bin` by `install` does not
+know the checkout, so set `FLEET_PROJECTS` (or run `fleet` from `bin/`).
+`fleet doctor` prints the folder in use.
 
 ## How the supervisor works
 
@@ -107,7 +123,7 @@ State lives in `$FLEET_HOME` (default `~/.local/state/fleet`):
 ```
 tasks/<name>.json     one record per crewmate: repo, branch, worktree, workspace,
                       pane, brief, brief_sent, last state, timestamps
-supervisor.lock/pid   single-instance lock and pid of the running supervisor
+supervisor.lock       single-instance lock; holds the pid of the running supervisor
 ```
 
 Worktrees are created under `~/.herdr/worktrees` on branch `fleet/<name>`.

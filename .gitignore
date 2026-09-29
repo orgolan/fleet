@@ -1,2 +1,5 @@
 /bin/
 /fleet
+/projects/*
+!/projects/README.md
+!/projects/_example/

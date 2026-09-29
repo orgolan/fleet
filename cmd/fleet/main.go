@@ -15,6 +15,7 @@ commands:
   ping       check the herdr socket and print server version
   events     stream agent status changes (Ctrl+C to stop)
   spawn      start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...] [-- agent-args...]
+  project    manage the repos in scope and their notes: fleet project add|list|show|note|rm
   tasks      list recorded tasks
   status     tasks merged with live herdr state: fleet status [--json]
   send       prompt a crewmate (no wait): fleet send <name> <text...>
@@ -33,6 +34,7 @@ var commands = map[string]func(args []string) error{
 	"ping":      func([]string) error { return ping() },
 	"events":    func([]string) error { return events() },
 	"spawn":     spawn,
+	"project":   project,
 	"tasks":     func([]string) error { return tasks() },
 	"status":    status,
 	"send":      send,
