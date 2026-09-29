@@ -37,6 +37,12 @@ func spawn(args []string) error {
 	spec.Name = fs.Arg(0)
 	spec.Brief = strings.Join(fs.Args()[1:], " ")
 	t, err := crew.Spawn(herdr.New(), spec)
+	if t.Name != "" {
+		// Print the task as stored (with its updated_at), not Spawn's copy.
+		if stored, lerr := ledger.Load(t.Name); lerr == nil {
+			t = stored
+		}
+	}
 	if err != nil {
 		if t.Name != "" {
 			printJSON(t)

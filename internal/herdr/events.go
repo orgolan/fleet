@@ -5,13 +5,29 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"strings"
 )
 
 // Event is one subscription event: a kind such as "pane.agent_status_changed"
 // and its raw data payload.
+//
+// The real server names events inconsistently: subscription events (per-pane
+// status) arrive as {"event":"pane.agent_status_changed","data":{flat fields}},
+// while lifecycle events arrive as {"event":"pane_agent_detected","data":{
+// "type":"pane_agent_detected",...}} with an underscore. Subscribe normalizes
+// every Kind to the dotted form used in subscription requests.
 type Event struct {
 	Kind string          `json:"event"`
 	Data json.RawMessage `json:"data"`
+}
+
+// NormalizeKind maps "pane_agent_detected" to "pane.agent_detected"; kinds that
+// already contain a dot are returned unchanged.
+func NormalizeKind(k string) string {
+	if strings.Contains(k, ".") {
+		return k
+	}
+	return strings.Replace(k, "_", ".", 1)
 }
 
 // Sub is one subscription object, e.g. {"type": "pane.exited"}. Some types need
@@ -46,6 +62,7 @@ func (c *Client) Subscribe(ctx context.Context, subs ...Sub) (<-chan Event, <-ch
 			if err := json.Unmarshal(sc.Bytes(), &ev); err != nil || ev.Kind == "" {
 				continue // the subscribe ack and any non-event lines
 			}
+			ev.Kind = NormalizeKind(ev.Kind)
 			select {
 			case events <- ev:
 			case <-ctx.Done():

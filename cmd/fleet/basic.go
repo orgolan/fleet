@@ -28,7 +28,7 @@ func events() error {
 		return err
 	}
 	// Status events are per pane, so subscribe for each agent pane known now.
-	// TODO(supervisor): follow pane.agent_detected and resubscribe for new agents.
+	// Panes that gain an agent later are not followed here (the supervisor does).
 	subs := []herdr.Sub{{"type": "pane.exited"}, {"type": "pane.agent_detected"}}
 	for _, a := range agents {
 		subs = append(subs, herdr.Sub{"type": "pane.agent_status_changed", "pane_id": a.PaneID})

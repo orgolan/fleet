@@ -137,3 +137,27 @@ func TestExitedWithStaleCopyOfStoppedTaskIsSilent(t *testing.T) {
 		t.Fatalf("state = %q, want stopped", got.State)
 	}
 }
+
+// A crewmate whose agent appears after the supervisor started must be picked
+// up from the agent_detected event alone (Poll is an hour), and its later
+// status changes must arrive through the per-pane watch.
+func TestAgentDetectedAfterStartIsFollowedWithoutPolling(t *testing.T) {
+	task := ledger.Task{Name: "d1", Kind: "claude", PaneID: "w:p7", Brief: "go", CreatedAt: time.Now()}
+	srv, _ := setup(t, task)
+	time.Sleep(100 * time.Millisecond) // let the initial reconcile find nothing
+
+	srv.SetAgent("d1", "w:p7", "blocked", "Do you trust this folder?")
+	srv.Emit("pane.agent_detected", "w:p7", map[string]any{"workspace_id": "w", "agent": "claude"})
+	eventually(t, "blocked recorded from agent_detected", func() bool {
+		got, _ := ledger.Load("d1")
+		return got.State == "blocked"
+	})
+	eventually(t, "needs-you notification", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "needs you")
+	})
+
+	srv.SetAgent("d1", "w:p7", "idle", "")
+	srv.Emit("pane.agent_status_changed", "w:p7", map[string]any{"workspace_id": "w", "agent": "claude", "agent_status": "idle"})
+	eventually(t, "brief delivered via status event", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+}

@@ -1,0 +1,7 @@
+{"data":{"agent":"claude","pane_id":"wX:p2","type":"pane_agent_detected","workspace_id":"wX"},"event":"pane_agent_detected"}
+{"data":{"agent":"claude","final_status":"unknown","pane_id":"wX:p2","released":true,"type":"pane_agent_detected","workspace_id":"wX"},"event":"pane_agent_detected"}
+{"data":{"agent":"claude","agent_status":"working","pane_id":"wX:p2","workspace_id":"wX"},"event":"pane.agent_status_changed"}
+{"data":{"agent":"claude","agent_status":"blocked","pane_id":"wX:p2","workspace_id":"wX"},"event":"pane.agent_status_changed"}
+{"data":{"pane_id":"wX:p1","type":"pane_exited","workspace_id":"wX"},"event":"pane_exited"}
+{"data":{"pane":{"agent_status":"unknown","cwd":"/tmp/x","focused":false,"pane_id":"wX:p2","revision":0,"tab_id":"wX:t1","workspace_id":"wX"},"type":"pane_created"},"event":"pane_created"}
+{"id":"p1","result":{"type":"subscription_started"}}

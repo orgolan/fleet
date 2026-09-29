@@ -116,7 +116,15 @@ func (s *Server) Emit(kind, pane string, data map[string]any) {
 
 func (s *Server) emitLocked(kind, pane string, data map[string]any) {
 	data["pane_id"] = pane
-	b, _ := json.Marshal(map[string]any{"event": kind, "data": data})
+	// Real wire shapes (see internal/herdr/testdata/events.jsonl): per-pane
+	// subscription events keep the dotted name and flat data; lifecycle
+	// events use the underscored name and repeat it in data.type.
+	wire := kind
+	if kind != "pane.agent_status_changed" {
+		wire = strings.ReplaceAll(kind, ".", "_")
+		data["type"] = wire
+	}
+	b, _ := json.Marshal(map[string]any{"event": wire, "data": data})
 	for _, sb := range s.subs {
 		if want, ok := sb.types[kind]; ok && (want == "" || want == pane) {
 			sb.conn.Write(append(b, '\n'))
