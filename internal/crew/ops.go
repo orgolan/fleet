@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
 )
 
 // Row is one task merged with what herdr reports for its pane.

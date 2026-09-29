@@ -26,31 +26,43 @@ herdr's socket API and event stream instead of tmux polling.
   (`HERDR_ENV=1`).
 - git.
 - Go 1.27+ to build from source. `scripts/install.sh check-go` verifies it. It
-  uses `$GO`, then `go` on PATH, then `$HOME/.local/go/bin/go`.
+  uses `$GO`, else the first Go that is new enough among `go` on PATH,
+  `$HOME/.local/go/bin/go` and `/usr/local/go/bin/go`.
 - Claude Code as the crewmate agent (default `--kind claude`).
 
 ## Quickstart
 
-```bash
-scripts/install.sh build          # bin/fleet
-scripts/install.sh                # install: build, copy to ~/.local/bin (PREFIX=...), link the skill
-fleet doctor                      # environment checklist
-```
+1. Install [herdr](https://herdr.dev) (>= 0.9), [Claude Code](https://claude.com/claude-code)
+   and Go >= 1.27. Git is assumed.
+2. Clone, start herdr, and open Claude Code in the clone:
 
-`make build`, `make install`, etc. are optional wrappers around the same script
-(`scripts/install.sh uninstall` removes the binary and skill link only).
-`scripts/install.sh install-skill` alone symlinks `skills/fleet` to `~/.claude/skills/fleet`
-(it refuses to overwrite anything that is not a symlink). Then, from a Claude
-Code session inside herdr, ask it to run a crew, or drive it by hand:
+   ```bash
+   git clone https://github.com/orgolan/fleet && cd fleet
+   herdr            # then, in a herdr pane:
+   claude
+   ```
+
+3. Say "set me up". Claude reads `CLAUDE.md` and runs the onboarding: it checks
+   your tools, builds and installs fleet, verifies it, and helps you create your
+   first project. Prefer to do it yourself?
 
 ```bash
-fleet spawn --repo ~/projects/app fix-login "Fix the login redirect bug. Run go test ./... before finishing."
-fleet up                   # start the supervisor (spawn already does this if it is not running)
-fleet status               # tasks merged with live herdr status
-fleet read fix-login       # tail of its output
+scripts/install.sh setup          # check tools, build, link binary + skill, run doctor
+fleet project new myapp           # empty repo under projects/myapp/repo
+fleet project clone myapp <url>   # ...or clone one (or: fleet project add myapp ~/code/app)
+fleet spawn --project myapp fix-login "Fix the login redirect bug. Run go test ./... before finishing."
+fleet status                      # tasks merged with live herdr status
+fleet read fix-login              # tail of its output
 fleet send fix-login "Also add a regression test."
-fleet stop fix-login       # after its branch fleet/fix-login is merged or approved
+fleet stop fix-login              # after its branch fleet/fix-login is merged or approved
+scripts/doctor.sh                 # is the install healthy? (--full also runs the tests)
 ```
+
+`spawn` starts the supervisor if it is not running (`fleet up` does the same by
+hand). `make` targets (`make setup`, `make doctor`, ...) are optional wrappers.
+`scripts/install.sh install` links `bin/fleet` into `~/.local/bin` (`PREFIX=...`)
+and the skill into `~/.claude/skills`; `uninstall` removes both links. The skill
+is also linked at `.claude/skills/`, so it works inside this repo with no install.
 
 ## Command reference
 
@@ -60,7 +72,7 @@ fleet stop fix-login       # after its branch fleet/fix-login is merged or appro
 | `fleet events` | Stream herdr events (debugging). |
 | `fleet tasks` | List recorded tasks from the ledger. |
 | `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
-| `fleet project add\|list\|show\|note\|rm` | Registry of repos in scope, with per-project notes (see Projects). |
+| `fleet project new\|clone\|add\|list\|show\|note\|rm` | Create, clone or register the repos in scope, with per-project notes (see Projects). |
 | `fleet status [--json]` | Tasks merged with live herdr status. |
 | `fleet send <name> <text...>` | Prompt a crewmate. Refuses if it is blocked. |
 | `fleet read <name> [--lines N]` | Tail of a crewmate's output. |
@@ -77,16 +89,17 @@ Agent names must match `[a-z][a-z0-9_-]{0,31}` (herdr's rule).
 
 `projects/<name>/project.json` (repo path, default base ref) and
 `projects/<name>/notes.md` (conventions, test commands, gotchas) record which
-repos are in scope. Manage them with `fleet project add|list|show|note|rm`.
+repos are in scope. `fleet project new` and `clone` also put the repo itself at
+`projects/<name>/repo`; `add` registers a repo that lives elsewhere. `rm` refuses
+to delete a repo that lives in `projects/` unless you pass `--force`.
 `fleet spawn --project <name>` uses the registered repo and base and appends the
 notes to the crewmate's brief, so the first mate and its crew share context.
 
 Only `projects/README.md` and `projects/_example/` are tracked; real entries are
 gitignored so your repo list stays local. The folder is `$FLEET_PROJECTS`, else
 `projects/` in the checkout the binary runs from (`bin/fleet`), else
-`$FLEET_HOME/projects`. A binary copied to `~/.local/bin` by `install` does not
-know the checkout, so set `FLEET_PROJECTS` (or run `fleet` from `bin/`).
-`fleet doctor` prints the folder in use.
+`$FLEET_HOME/projects`. `install` links the binary instead of copying it, so
+it always finds the checkout. `fleet doctor` prints the folder in use.
 
 ## How the supervisor works
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
 )
 
 // ErrBlocked means the agent is at an approval or trust prompt; the brief was not sent.

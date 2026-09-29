@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
-	"fleet/internal/supervisor"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/supervisor"
 )
 
 func supervise(args []string) error {

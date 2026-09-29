@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"time"
 
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
 )
 
 // Herdr agent names must match this.
@@ -41,7 +41,7 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 		return zero, fmt.Errorf("agent kind is required")
 	}
 	if s.Branch == "" {
-		s.Branch = "fleet/" + s.Name
+		s.Branch = "github.com/orgolan/fleet/" + s.Name
 	}
 	repo, err := filepath.Abs(s.Repo)
 	if err != nil {

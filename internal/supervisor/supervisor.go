@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"fleet/internal/crew"
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/crew"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
 )
 
 // Supervisor is not safe for concurrent use; Run owns all its state.

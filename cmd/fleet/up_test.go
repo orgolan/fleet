@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"fleet/internal/herdr/fake"
-	"fleet/internal/supervisor"
+	"github.com/orgolan/fleet/internal/herdr/fake"
+	"github.com/orgolan/fleet/internal/supervisor"
 )
 
 func TestUpStartsSupervisorOnlyWhenNotRunning(t *testing.T) {

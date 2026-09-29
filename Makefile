@@ -3,7 +3,10 @@
 # GO and PREFIX are passed through to the script via the environment.
 SCRIPT = scripts/install.sh
 
-.PHONY: build test check-go install install-skill uninstall clean
+.PHONY: setup build test check-go install install-skill uninstall clean doctor
 
-build test check-go install install-skill uninstall clean:
+setup build test check-go install install-skill uninstall clean:
 	@$(SCRIPT) $@
+
+doctor:
+	@scripts/doctor.sh

@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 
-	"fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/herdr"
 )
 
 func ping() error {

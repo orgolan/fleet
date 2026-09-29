@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"fleet/internal/herdr"
-	"fleet/internal/herdr/fake"
-	"fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/herdr/fake"
+	"github.com/orgolan/fleet/internal/ledger"
 )
 
 func env(t *testing.T) (*fake.Server, *herdr.Client) {

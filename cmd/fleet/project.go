@@ -7,16 +7,18 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"fleet/internal/projects"
+	"github.com/orgolan/fleet/internal/projects"
 )
 
 const projectUsage = `usage: fleet project <subcommand>
 
-  add <name> <path> [--base REF]   put the git repo containing <path> in scope
+  new <name>                       create an empty git repo under projects/<name>/repo
+  clone <name> <url>               clone a repo under projects/<name>/repo
+  add <name> <path> [--base REF]   put an existing git repo (anywhere) in scope
   list [--json]                    registered projects
   show <name>                      project record and notes
   note <name> <text...>            append a dated line to the project's notes
-  rm <name>                        unregister (the repo itself is untouched)
+  rm <name> [--force]              unregister and drop notes; a repo made by new/clone is only deleted with --force
 `
 
 func project(args []string) error {
@@ -40,6 +42,26 @@ func project(args []string) error {
 			return err
 		}
 		fmt.Printf("added %s -> %s\n", p.Name, p.Path)
+		return nil
+	case "new":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: fleet project new <name>")
+		}
+		p, err := projects.New(rest[0])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("created %s at %s\n", p.Name, p.Path)
+		return nil
+	case "clone":
+		if len(rest) != 2 {
+			return fmt.Errorf("usage: fleet project clone <name> <url>")
+		}
+		p, err := projects.Clone(rest[0], rest[1])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("cloned %s to %s\n", p.Name, p.Path)
 		return nil
 	case "list":
 		fs := flag.NewFlagSet("project list", flag.ContinueOnError)
@@ -80,13 +102,19 @@ func project(args []string) error {
 		}
 		return projects.AddNote(rest[0], strings.Join(rest[1:], " "))
 	case "rm":
-		if len(rest) != 1 {
-			return fmt.Errorf("usage: fleet project rm <name>")
-		}
-		if err := projects.Remove(rest[0]); err != nil {
+		fs := flag.NewFlagSet("project rm", flag.ContinueOnError)
+		force := fs.Bool("force", false, "also delete a repo created by new/clone (destroys its work)")
+		pos, err := parseInterspersed(fs, rest)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("removed %s\n", rest[0])
+		if len(pos) != 1 {
+			return fmt.Errorf("usage: fleet project rm <name> [--force]")
+		}
+		if err := projects.Remove(pos[0], *force); err != nil {
+			return err
+		}
+		fmt.Printf("removed %s\n", pos[0])
 		return nil
 	}
 	return fmt.Errorf("unknown project subcommand %q\n%s", args[0], strings.TrimRight(projectUsage, "\n"))

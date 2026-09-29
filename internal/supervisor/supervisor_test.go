@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"fleet/internal/crew"
-	"fleet/internal/herdr"
-	"fleet/internal/herdr/fake"
-	"fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/crew"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/herdr/fake"
+	"github.com/orgolan/fleet/internal/ledger"
 )
 
 func setup(t *testing.T, task ledger.Task) (*fake.Server, context.CancelFunc) {

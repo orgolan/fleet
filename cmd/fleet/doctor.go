@@ -6,10 +6,10 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
-	"fleet/internal/projects"
-	"fleet/internal/supervisor"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/projects"
+	"github.com/orgolan/fleet/internal/supervisor"
 )
 
 // agentCLIs are looked up on PATH for information only.

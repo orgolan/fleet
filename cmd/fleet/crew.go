@@ -7,10 +7,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"fleet/internal/crew"
-	"fleet/internal/herdr"
-	"fleet/internal/ledger"
-	"fleet/internal/projects"
+	"github.com/orgolan/fleet/internal/crew"
+	"github.com/orgolan/fleet/internal/herdr"
+	"github.com/orgolan/fleet/internal/ledger"
+	"github.com/orgolan/fleet/internal/projects"
 )
 
 func spawn(args []string) error {
