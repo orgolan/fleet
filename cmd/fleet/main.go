@@ -23,7 +23,7 @@ const usage = `usage: fleet <command>
 commands:
   ping     check the herdr socket and print server version
   events   stream agent status changes (Ctrl+C to stop)
-  spawn    start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...]
+  spawn    start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...] [-- agent-args...]
   tasks    list recorded tasks
   supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
 `
@@ -104,11 +104,19 @@ func spawn(args []string) error {
 	fs.StringVar(&spec.Branch, "branch", "", "branch name (default fleet/<name>)")
 	fs.StringVar(&spec.Base, "base", "", "base ref for the new branch")
 	fs.BoolVar(&spec.Trust, "trust-repository", false, "grant per-request git trust (only for repos you verified)")
+	// Everything after a literal "--" is passed to the agent as native arguments.
+	for i, a := range args {
+		if a == "--" {
+			spec.Args = args[i+1:]
+			args = args[:i]
+			break
+		}
+	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: fleet spawn [flags] <name> [brief...]")
+		return fmt.Errorf("usage: fleet spawn [flags] <name> [brief...] [-- agent-args...]")
 	}
 	spec.Name = fs.Arg(0)
 	spec.Brief = strings.Join(fs.Args()[1:], " ")
