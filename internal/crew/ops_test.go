@@ -119,3 +119,24 @@ func TestStopDirtyNeedsForce(t *testing.T) {
 		t.Fatalf("removed = %v", rm)
 	}
 }
+
+func TestStopKeepsOutputAndResultFallsBackToIt(t *testing.T) {
+	srv, c := env(t)
+	save(t, ledger.Task{Name: "a", PaneID: "w:p1", WorkspaceID: "wa", State: "idle"})
+	srv.SetAgent("a", "w:p1", "idle", "final report: all good")
+	srv.SetWorkspace("w:p1", "wa")
+	if txt, src, err := Result(c, "a", 50); err != nil || src != "live" || !strings.Contains(txt, "final report") {
+		t.Fatalf("live Result = %q, %q, %v", txt, src, err)
+	}
+	if err := Stop(c, "a", false); err != nil {
+		t.Fatal(err)
+	}
+	srv.RemoveAgent("w:p1") // the pane is gone after stop
+	txt, src, err := Result(c, "a", 50)
+	if err != nil || !strings.Contains(txt, "final report") || !strings.Contains(src, "saved") {
+		t.Fatalf("saved Result = %q, %q, %v", txt, src, err)
+	}
+	if _, _, err := Result(c, "nope", 50); err == nil {
+		t.Fatal("Result of an unknown task succeeded")
+	}
+}

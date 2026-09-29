@@ -3,6 +3,8 @@ package crew
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/orgolan/fleet/internal/herdr"
 	"github.com/orgolan/fleet/internal/ledger"
@@ -76,6 +78,13 @@ func Stop(c *herdr.Client, name string, force bool) error {
 	if t.State == "stopped" {
 		return fmt.Errorf("task %q is already stopped", name)
 	}
+	// Keep the crewmate's last output: the pane, and the report in it, is about to go.
+	// Best effort; an agent that is busy or already gone cannot be read.
+	if txt, err := c.AgentRead(name, resultLines); err == nil && strings.TrimSpace(txt) != "" {
+		if err := ledger.SaveResult(name, txt); err != nil {
+			fmt.Fprintf(os.Stderr, "fleet: warning: could not save %s's output: %v\n", name, err)
+		}
+	}
 	prev := t.State
 	if err := ledger.Update(name, func(t *ledger.Task) { t.State = "stopped" }); err != nil {
 		return err
@@ -94,4 +103,23 @@ func Stop(c *herdr.Client, name string, force bool) error {
 		return err
 	}
 	return nil
+}
+
+// resultLines is how much output Stop keeps and Result reads.
+const resultLines = 400
+
+// Result returns a crewmate's recent output: live when it can be read, else the
+// copy saved when it was stopped. The second value says which one it was.
+func Result(c *herdr.Client, name string, lines int) (text, source string, err error) {
+	if _, lerr := ledger.Load(name); lerr != nil {
+		return "", "", fmt.Errorf("no such task %q: %w", name, lerr)
+	}
+	live, rerr := c.AgentRead(name, lines)
+	if rerr == nil {
+		return live, "live", nil
+	}
+	if saved, serr := ledger.LoadResult(name); serr == nil {
+		return saved, "saved when stopped", nil
+	}
+	return "", "", fmt.Errorf("cannot read %s and no saved output exists: %w", name, rerr)
 }

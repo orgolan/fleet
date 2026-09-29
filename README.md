@@ -8,17 +8,27 @@ tells you when one needs you or finishes.
 Inspired by [firstmate](https://github.com/kunchenguid/firstmate), but built on
 herdr's socket API and event stream instead of tmux polling.
 
-## How it differs from firstmate
+## Fleet vs firstmate
 
-- **Events, not polling.** The supervisor subscribes to herdr's per-pane
-  `agent_status_changed` events. A slow reconcile pass (default 20s) is only a
-  safety net.
-- **herdr does the terminal work.** Workspaces, agent naming, status
-  classification (`idle`, `working`, `blocked`, `done`) and toasts come from
-  herdr; fleet does not scrape terminals to guess state.
-- **Smaller.** A single Go binary plus one skill. No PR flow, no multi-machine
-  support, and only Claude Code has been tested as a crewmate (see Limitations).
-- **Never answers prompts.** Approval and trust prompts always go to the captain.
+[firstmate](https://github.com/kunchenguid/firstmate) is a much larger "agent
+distro": several session backends, many primary harnesses, PR and merge modes,
+secondmates, and more. Fleet is a small tool that does one thing well on herdr.
+Pick firstmate if you need what fleet lacks.
+
+| | fleet | firstmate |
+|---|---|---|
+| Backend | herdr only, over its socket API | tmux (default), herdr, zellij, cmux, Orca |
+| Supervision | herdr event stream; a slow reconcile is only a safety net | a watcher script with per-harness turn-end guards |
+| Agents | Claude Code tested as crewmate; other herdr kinds untested | several harnesses verified as the primary session |
+| Shipping work | none: you merge `fleet/<name>` branches yourself | per-project modes: PR, `no-mistakes`, local-only, Gerrit |
+| Machines | one | local plus SSH secondmates |
+| Install | one Go binary plus two skills; `CLAUDE.md` walks you through setup | clone the repo; the repo is the distro |
+| Approval prompts | never answered by fleet | first mate escalates real decisions |
+| Size | small Go codebase (see `cmd/` and `internal/`) | a full harness of scripts, skills and policies |
+
+What fleet adds: events instead of polling, herdr does the terminal work
+(workspaces, status classification, toasts), and a project registry with notes
+the first mate reads before briefing.
 
 ## Requirements
 
@@ -71,17 +81,19 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet ping` | Check the herdr socket answers. |
 | `fleet events` | Stream herdr events (debugging). |
 | `fleet tasks` | List recorded tasks from the ledger. |
-| `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
+| `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
 | `fleet project new\|clone\|add\|list\|show\|note\|rm` | Create, clone or register the repos in scope, with per-project notes (see Projects). |
 | `fleet status [--json]` | Tasks merged with live herdr status. |
 | `fleet send <name> <text...>` | Prompt a crewmate. Refuses if it is blocked. |
 | `fleet read <name> [--lines N]` | Tail of a crewmate's output. |
+| `fleet result <name> [--lines N]` | A crewmate's report, live or as saved when it was stopped. |
 | `fleet keys <name> <key...>` | Captain answers a blocked prompt, e.g. `enter`, `esc`, `ctrl+c`. |
 | `fleet focus <name>` | Focus the crewmate in the herdr UI. |
-| `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. |
+| `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. Its last output is saved for `fleet result`. |
 | `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in its own `fleet-supervisor` herdr workspace). `spawn` does this automatically. |
 | `fleet supervise [--poll 20s]` | Event-driven supervisor; single instance. |
 | `fleet doctor` | Environment checklist. |
+| `fleet version` | Print the version. |
 
 Agent names must match `[a-z][a-z0-9_-]{0,31}` (herdr's rule).
 
@@ -129,6 +141,22 @@ Resolve it in the herdr UI (`fleet focus <name>`) or, only if you approve, with
 idle the supervisor delivers the brief automatically. `--trust-repository` on
 `spawn` is an explicit opt-in you choose; fleet never decides it for you.
 
+### Uncommitted work
+
+A crewmate's worktree is a fresh checkout, so it does not contain uncommitted
+changes in the repo. `fleet spawn` warns when the repo is dirty;
+`--with-dirty` copies the edits and untracked files into the new worktree (the
+repo itself is never modified).
+
+### Briefs that never arrive
+
+Right after a trust prompt clears, herdr reports the agent idle while its UI is
+still starting, and text sent then can be dropped. The supervisor waits a few
+seconds before sending in that case, and 25 seconds after any delivery it checks
+that the agent really has the brief. If not, it toasts you and does not resend
+(a duplicate brief is harder to undo than a missing one): use `fleet read`, then
+`fleet send`.
+
 ## State and ledger
 
 State lives in `$FLEET_HOME` (default `~/.local/state/fleet`):
@@ -136,6 +164,7 @@ State lives in `$FLEET_HOME` (default `~/.local/state/fleet`):
 ```
 tasks/<name>.json     one record per crewmate: repo, branch, worktree, workspace,
                       pane, brief, brief_sent, last state, timestamps
+tasks/<name>.result.txt  its last output, saved by `fleet stop`
 supervisor.lock       single-instance lock; holds the pid of the running supervisor
 ```
 
@@ -150,6 +179,18 @@ Worktrees are created under `~/.herdr/worktrees` on branch `fleet/<name>`.
 - Fleet does not run destructive git on your projects; it adds a worktree and
   branch, and `stop` removes only that worktree.
 - The bundled skill tells the first-mate session to ask before sending keys.
+
+## Releases
+
+`scripts/release.sh v0.1.0` cross-compiles linux and macOS (amd64, arm64) into
+`dist/` with checksums. It only builds; publish with `gh release create`.
+
+## Persona
+
+The bundled skill makes the first mate talk like a pirate first mate and call you
+"Captain". Tell it to drop the act ("plain talk, please") or delete the
+`## Persona` section of `skills/fleet/SKILL.md` to turn it off. It never changes
+commands, paths or error text.
 
 ## Development
 

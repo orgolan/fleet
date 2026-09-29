@@ -1,4 +1,5 @@
 /bin/
+/dist/
 /fleet
 /projects/*
 !/projects/README.md

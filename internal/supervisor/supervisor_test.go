@@ -16,6 +16,13 @@ import (
 
 func setup(t *testing.T, task ledger.Task) (*fake.Server, context.CancelFunc) {
 	t.Helper()
+	return setupWith(t, task, nil)
+}
+
+// setupWith is setup with a hook to tune the supervisor before it runs. Settle and
+// Verify are off unless the hook turns them on.
+func setupWith(t *testing.T, task ledger.Task, tune func(*Supervisor)) (*fake.Server, context.CancelFunc) {
+	t.Helper()
 	t.Setenv("FLEET_HOME", t.TempDir())
 	if err := ledger.Save(task); err != nil {
 		t.Fatal(err)
@@ -23,6 +30,10 @@ func setup(t *testing.T, task ledger.Task) (*fake.Server, context.CancelFunc) {
 	srv := fake.New(t)
 	s := New(&herdr.Client{Socket: srv.Socket}, log.New(io.Discard, "", 0))
 	s.Poll = time.Hour // events only: the reconcile tick must not mask event bugs
+	s.Settle, s.Verify = 0, 0
+	if tune != nil {
+		tune(s)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go s.Run(ctx)
@@ -160,4 +171,66 @@ func TestAgentDetectedAfterStartIsFollowedWithoutPolling(t *testing.T) {
 	srv.SetAgent("d1", "w:p7", "idle", "")
 	srv.Emit("pane.agent_status_changed", "w:p7", map[string]any{"workspace_id": "w", "agent": "claude", "agent_status": "idle"})
 	eventually(t, "brief delivered via status event", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+}
+
+// After leaving a blocked prompt the agent gets Settle time before the brief goes in.
+func TestBriefWaitsForSettleAfterBlocked(t *testing.T) {
+	task := ledger.Task{Name: "s1", Kind: "claude", PaneID: "w:p1", Brief: "go", CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Settle = 300 * time.Millisecond })
+	srv.SetAgent("s1", "w:p1", "blocked", "trust?")
+	eventually(t, "needs-you notification", func() bool { _, n := srv.Snapshot(); return len(n) == 1 })
+
+	srv.SetAgent("s1", "w:p1", "idle", "")
+	srv.Emit("pane.agent_status_changed", "w:p1", map[string]any{"workspace_id": "w", "agent_status": "idle"})
+	time.Sleep(100 * time.Millisecond)
+	if p, _ := srv.Snapshot(); len(p) != 0 {
+		t.Fatalf("brief sent before the agent settled: %v", p)
+	}
+	eventually(t, "brief delivered after settle", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+}
+
+// If the agent blocks again while settling, nothing is sent to it.
+func TestBriefNotSentIfAgentBlocksWhileSettling(t *testing.T) {
+	task := ledger.Task{Name: "s2", Kind: "claude", PaneID: "w:p1", Brief: "go", CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Settle = 300 * time.Millisecond })
+	srv.SetAgent("s2", "w:p1", "blocked", "trust?")
+	eventually(t, "needs-you notification", func() bool { _, n := srv.Snapshot(); return len(n) == 1 })
+
+	srv.SetAgent("s2", "w:p1", "idle", "")
+	srv.Emit("pane.agent_status_changed", "w:p1", map[string]any{"workspace_id": "w", "agent_status": "idle"})
+	time.Sleep(50 * time.Millisecond)
+	srv.SetAgent("s2", "w:p1", "blocked", "another prompt")
+	time.Sleep(500 * time.Millisecond)
+	if p, _ := srv.Snapshot(); len(p) != 0 {
+		t.Fatalf("brief sent to a blocked agent: %v", p)
+	}
+}
+
+// An agent that is idle after delivery without the brief on screen warns the captain, once, and is never resent to.
+func TestLostBriefWarnsCaptain(t *testing.T) {
+	task := ledger.Task{Name: "v1", Kind: "claude", PaneID: "w:p1", Brief: "Review the welcome page carefully", CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Verify = 200 * time.Millisecond })
+	srv.SetAgent("v1", "w:p1", "idle", "")
+	eventually(t, "brief delivered", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+	srv.SetAgent("v1", "w:p1", "idle", "an empty prompt") // the brief never showed up
+	eventually(t, "lost-brief warning", func() bool {
+		_, n := srv.Snapshot()
+		return len(n) == 1 && strings.Contains(n[0], "may not have its brief")
+	})
+	if p, _ := srv.Snapshot(); len(p) != 1 {
+		t.Fatalf("brief was resent: %v", p)
+	}
+}
+
+// A brief visible on screen (even soft-wrapped) means it arrived: no warning.
+func TestReceivedBriefDoesNotWarn(t *testing.T) {
+	task := ledger.Task{Name: "v2", Kind: "claude", PaneID: "w:p1", Brief: "Review the welcome page carefully", CreatedAt: time.Now()}
+	srv, _ := setupWith(t, task, func(s *Supervisor) { s.Verify = 100 * time.Millisecond })
+	srv.SetAgent("v2", "w:p1", "idle", "")
+	eventually(t, "brief delivered", func() bool { p, _ := srv.Snapshot(); return len(p) == 1 })
+	srv.SetAgent("v2", "w:p1", "idle", "> Review the welcome\n  page carefully")
+	time.Sleep(400 * time.Millisecond)
+	if _, n := srv.Snapshot(); len(n) != 0 {
+		t.Fatalf("unexpected notifications: %v", n)
+	}
 }

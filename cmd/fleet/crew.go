@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -21,6 +22,7 @@ func spawn(args []string) error {
 	proj := fs.String("project", "", "registered project (see fleet project); sets repo and base, adds its notes to the brief")
 	fs.StringVar(&spec.Branch, "branch", "", "branch name (default fleet/<name>)")
 	fs.StringVar(&spec.Base, "base", "", "base ref for the new branch")
+	fs.BoolVar(&spec.Dirty, "with-dirty", false, "copy the repo's uncommitted changes into the crewmate's worktree")
 	fs.BoolVar(&spec.Trust, "trust-repository", false, "grant per-request git trust (only for repos you verified)")
 	// Everything after a literal "--" is passed to the agent as native arguments.
 	for i, a := range args {
@@ -41,6 +43,14 @@ func spawn(args []string) error {
 	if *proj != "" {
 		if err := applyProject(&spec, *proj); err != nil {
 			return err
+		}
+	}
+	if !spec.Dirty {
+		// A worktree is a fresh checkout: uncommitted work in the repo is invisible to the crewmate.
+		if repo, aerr := filepath.Abs(spec.Repo); aerr == nil {
+			if files, derr := crew.DirtyFiles(repo); derr == nil && len(files) > 0 {
+				fmt.Fprintf(os.Stderr, "fleet: warning: %s has %d uncommitted path(s) (%s) that the crewmate's worktree will NOT contain; use --with-dirty to copy them\n", repo, len(files), strings.Join(firstN(files, 3), ", "))
+			}
 		}
 	}
 	t, err := crew.Spawn(herdr.New(), spec)
@@ -83,6 +93,33 @@ func applyProject(spec *crew.Spec, name string) error {
 	if notes = strings.TrimSpace(notes); notes != "" && spec.Brief != "" {
 		spec.Brief += "\n\nProject notes (" + name + "):\n" + notes
 	}
+	return nil
+}
+
+func firstN(s []string, n int) []string {
+	if len(s) > n {
+		return append(s[:n:n], "...")
+	}
+	return s
+}
+
+// result prints a crewmate's recent output, live or as saved when it was stopped.
+func result(args []string) error {
+	fs := flag.NewFlagSet("result", flag.ContinueOnError)
+	lines := fs.Int("lines", 400, "number of trailing lines")
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 || *lines < 1 {
+		return fmt.Errorf("usage: fleet result <name> [--lines N]")
+	}
+	txt, source, err := crew.Result(herdr.New(), pos[0], *lines)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "fleet: output of %s (%s)\n", pos[0], source)
+	fmt.Println(strings.TrimRight(txt, "\n"))
 	return nil
 }
 

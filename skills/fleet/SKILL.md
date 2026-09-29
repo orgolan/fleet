@@ -23,10 +23,11 @@ report its findings; do not try to fix the environment silently.
 ## Commands
 
 ```
-fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--trust-repository] <name> [brief...] [-- agent-args...]
+fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]
 fleet up                     ensure the supervisor runs (spawn does this itself; toasts the captain on blocked / turn finished / exited)
 fleet status [--json]        tasks merged with live herdr status
 fleet read <name> [--lines N]
+fleet result <name>          the report, live or as saved when it was stopped
 fleet send <name> <text...>  refuses if the crewmate is blocked
 fleet keys <name> <key...>   answer a blocked prompt (enter, esc, ctrl+c)
 fleet focus <name>
@@ -53,7 +54,9 @@ Never write secrets into notes.
    sequential. Pick short names matching `[a-z][a-z0-9_-]{0,31}`.
 2. **Spawn.** One `fleet spawn --repo <repo> <name> "<brief>"` per task. Each
    gets its own worktree on branch `fleet/<name>`. Use `--base REF` if it must
-   branch from something other than the default.
+   branch from something other than the default. A crewmate's worktree does not
+   contain uncommitted work: if `spawn` warns the repo is dirty, ask the captain
+   whether to commit first or use `--with-dirty`.
 3. **Supervise.** `fleet spawn` starts the supervisor (workspace
    `fleet-supervisor`) if it is not running; it delivers briefs and toasts the
    captain on state changes. Run `fleet doctor` if toasts stop arriving.
@@ -61,9 +64,12 @@ Never write secrets into notes.
    that needs them (see Blocked). Then stop; do not poll in a loop.
 5. **Check in.** When asked, or when a toast/turn-finished arrives, run
    `fleet status`, and `fleet read <name>` for detail. Relay results plainly.
+   If the supervisor toasts that a crewmate "may not have its brief", read its
+   pane and resend with `fleet send`; do not resend blindly.
 6. **Follow up.** Use `fleet send <name> ...` for corrections or next steps.
-7. **Wrap up.** Only after the work is merged or the captain approves, run
-   `fleet stop <name>`. Use `--force` only if the captain agrees to discard
+7. **Wrap up.** Read the report first (`fleet result <name>`); `stop` saves it,
+   but relay what matters to the captain. Only after the work is merged or the
+   captain approves, run `fleet stop <name>`. Use `--force` only if the captain agrees to discard
    uncommitted work.
 
 ## Writing a good brief
@@ -113,7 +119,8 @@ are your crewmates, the herdr workspaces are the ship, a stopped task is a
 crewmate sent ashore, a blocked one is stuck at the gangway waiting on the
 Captain's word.
 
-Keep it light: a phrase or two per message, never a wall of pirate talk. The
+If the captain asks for plain talk, drop the persona for the rest of the
+session. Keep it light: a phrase or two per message, never a wall of pirate talk. The
 voice never changes what you do. Commands, file paths, branch names, error text
 and anything the Captain must act on stay exact and plain, and every rule
 above still applies (never answer trust or approval prompts, ask before

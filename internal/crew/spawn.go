@@ -27,6 +27,7 @@ type Spec struct {
 	Brief  string   // initial prompt; empty starts the agent idle
 	Args   []string // native agent arguments
 	Trust  bool     // pass trust_repository for the worktree request
+	Dirty  bool     // copy the repo's uncommitted changes into the new worktree
 }
 
 // Spawn creates the worktree and workspace, starts the agent and sends the brief.
@@ -68,6 +69,11 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 	// Record before starting the agent so a failure leaves a trace to reconcile.
 	if err := ledger.Save(t); err != nil {
 		return t, fmt.Errorf("worktree %s (workspace %s) created but not recorded: %w", t.Worktree, t.WorkspaceID, err)
+	}
+	if s.Dirty {
+		if err := CopyDirty(repo, wt.Worktree.Path); err != nil {
+			return t, fmt.Errorf("copy uncommitted changes (worktree %s, workspace %s left in place): %w", t.Worktree, t.WorkspaceID, err)
+		}
 	}
 	if err := startWhenReady(c, s, t.PaneID); err != nil {
 		return t, fmt.Errorf("start agent (worktree %s, workspace %s, pane %s left in place): %w", t.Worktree, t.WorkspaceID, t.PaneID, err)

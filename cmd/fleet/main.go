@@ -9,6 +9,9 @@ import (
 	"os"
 )
 
+// version is set at release time: -ldflags "-X main.version=v0.1.0".
+var version = "dev"
+
 const usage = `usage: fleet <command> [args]
 
 commands:
@@ -20,12 +23,14 @@ commands:
   status     tasks merged with live herdr state: fleet status [--json]
   send       prompt a crewmate (no wait): fleet send <name> <text...>
   read       tail a crewmate's recent output: fleet read <name> [--lines N]
+  result     a crewmate's report, even after it was stopped: fleet result <name> [--lines N]
   keys       send keys to a crewmate, e.g. to answer a prompt: fleet keys <name> <key...>
   focus      focus a crewmate in the herdr UI: fleet focus <name>
   stop       remove a crewmate's worktree and mark it stopped: fleet stop <name> [--force]
   supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
   up         ensure a supervisor is running (in a background herdr pane)
   doctor     check the environment
+  version    print the fleet version
   help       print this help
 `
 
@@ -39,12 +44,14 @@ var commands = map[string]func(args []string) error{
 	"status":    status,
 	"send":      send,
 	"read":      read,
+	"result":    result,
 	"keys":      keys,
 	"focus":     focus,
 	"stop":      stop,
 	"supervise": supervise,
 	"up":        up,
 	"doctor":    doctor,
+	"version":   func([]string) error { fmt.Println("fleet", version); return nil },
 }
 
 func main() {

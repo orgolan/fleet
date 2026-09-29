@@ -63,7 +63,7 @@ func doctor(args []string) error {
 	} else if running {
 		check(true, fmt.Sprintf("supervisor running (pid %d)", supervisor.ReadPID(dir)))
 	} else {
-		fmt.Println("warn  supervisor not running: start it with `fleet up`")
+		fmt.Println("warn  supervisor not running: `fleet spawn` starts one automatically, or run `fleet up`")
 	}
 
 	if pd, err := projects.Dir(); err != nil {

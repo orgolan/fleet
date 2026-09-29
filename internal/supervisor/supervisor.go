@@ -23,6 +23,15 @@ type Supervisor struct {
 	Log  *log.Logger
 	Poll time.Duration // reconcile interval, a safety net for missed events
 
+	// Settle is how long to wait before sending a brief to an agent that has just
+	// left a blocked prompt: herdr reports it idle while its TUI is still starting
+	// up, and text sent then is silently dropped. Zero disables the wait.
+	Settle time.Duration
+	// Verify is how long after delivery to check that the agent really took the
+	// brief, and warn the captain if not. Zero disables the check.
+	Verify time.Duration
+	ctx    context.Context
+
 	last    map[string]herdr.AgentStatus // task name -> last handled status
 	seen    map[string]bool              // task name -> was ever observed live
 	watches map[string]context.CancelFunc
@@ -31,7 +40,7 @@ type Supervisor struct {
 
 func New(c *herdr.Client, l *log.Logger) *Supervisor {
 	return &Supervisor{
-		C: c, Log: l, Poll: 20 * time.Second,
+		C: c, Log: l, Poll: 20 * time.Second, Settle: 4 * time.Second, Verify: 25 * time.Second,
 		last: map[string]herdr.AgentStatus{}, seen: map[string]bool{},
 		watches: map[string]context.CancelFunc{},
 		status:  make(chan herdr.AgentStatusChanged, 64),
@@ -40,6 +49,7 @@ func New(c *herdr.Client, l *log.Logger) *Supervisor {
 
 // Run blocks until ctx is cancelled.
 func (s *Supervisor) Run(ctx context.Context) error {
+	s.ctx = ctx
 	meta := s.metaEvents(ctx)
 	tick := time.NewTicker(s.Poll)
 	defer tick.Stop()
@@ -218,7 +228,7 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 		s.notify("fleet: "+t.Name+" needs you", s.tail(t.Name), "request")
 	case herdr.Idle, herdr.Done:
 		if !t.BriefSent && t.Brief != "" {
-			s.deliver(t)
+			s.deliver(t, prev == herdr.Blocked)
 			return
 		}
 		s.setState(t.Name, string(st))
@@ -230,12 +240,25 @@ func (s *Supervisor) handle(t ledger.Task, st herdr.AgentStatus) {
 	}
 }
 
-func (s *Supervisor) deliver(t ledger.Task) {
+// deliver sends the brief. afterBlock is true when the agent has just left a
+// blocked prompt (typically the trust dialog): wait for its TUI to settle first.
+// This blocks the event loop for Settle, which is fine for a small crew.
+func (s *Supervisor) deliver(t ledger.Task, afterBlock bool) {
+	if afterBlock && s.Settle > 0 {
+		sleep(s.ctx, s.Settle)
+		if !s.stillReady(t.PaneID) {
+			delete(s.last, t.Name) // changed state while settling; look again next event or pass
+			return
+		}
+	}
 	err := crew.Deliver(s.C, t.Name, false, false)
 	switch {
 	case err == nil:
 		s.Log.Printf("%s: brief delivered", t.Name)
 		s.last[t.Name] = herdr.Working
+		if s.Verify > 0 {
+			go s.verify(t)
+		}
 	case errors.Is(err, ledger.ErrLocked):
 		delete(s.last, t.Name) // the spawner is mid-delivery; look again next pass
 	case errors.Is(err, crew.ErrBlocked):
@@ -247,6 +270,60 @@ func (s *Supervisor) deliver(t ledger.Task) {
 		s.Log.Printf("%s: brief delivery failed: %v", t.Name, err)
 		delete(s.last, t.Name)
 	}
+}
+
+// stillReady reports whether the agent in pane is still idle or done.
+func (s *Supervisor) stillReady(pane string) bool {
+	agents, err := s.C.Agents()
+	if err != nil {
+		return false
+	}
+	for _, a := range agents {
+		if a.PaneID == pane {
+			return a.Status == herdr.Idle || a.Status == herdr.Done
+		}
+	}
+	return false
+}
+
+// verify checks, after Verify, that a delivered brief reached the agent, and
+// warns the captain if not. It never resends: a lost brief is cheap to resend by
+// hand, a duplicated one is not cheap to undo. An agent still working is taken
+// as proof; an idle one must show the start of the brief (or Claude Code's
+// pasted-text placeholder) in its recent output.
+func (s *Supervisor) verify(t ledger.Task) {
+	sleep(s.ctx, s.Verify)
+	if s.ctx.Err() != nil {
+		return
+	}
+	if cur, err := ledger.Load(t.Name); err != nil || ended(cur) {
+		return
+	}
+	if !s.stillReady(t.PaneID) {
+		return // working, blocked or gone: nothing to warn about
+	}
+	txt, err := s.C.AgentRead(t.Name, 400)
+	if err != nil {
+		s.Log.Printf("%s: verify brief: %v", t.Name, err)
+		return
+	}
+	if strings.Contains(squash(txt), snippet(t.Brief)) || strings.Contains(txt, "Pasted text") {
+		return
+	}
+	s.Log.Printf("%s: brief may not have been received", t.Name)
+	s.notify("fleet: "+t.Name+" may not have its brief",
+		"It is idle and its output does not show the brief. Check with `fleet read "+t.Name+"`; resend with `fleet send`.", "request")
+}
+
+// snippet is the first 30 characters of the brief with whitespace removed.
+func snippet(brief string) string {
+	r := []rune(squash(brief))
+	return string(r[:min(30, len(r))])
+}
+
+// squash removes all whitespace, so text soft-wrapped by the terminal still matches.
+func squash(s string) string {
+	return strings.Join(strings.Fields(s), "")
 }
 
 func (s *Supervisor) setState(name, state string) {

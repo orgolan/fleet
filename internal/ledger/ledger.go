@@ -175,3 +175,37 @@ func List() ([]Task, error) {
 	}
 	return out, nil
 }
+
+func resultPath(name string) (string, error) {
+	d, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, "tasks", name+".result.txt"), nil
+}
+
+// SaveResult stores the tail of a crewmate's output, so it survives `fleet stop`.
+func SaveResult(name, text string) error {
+	p, err := resultPath(name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, []byte(text), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
+}
+
+// LoadResult returns the saved output, or os.ErrNotExist.
+func LoadResult(name string) (string, error) {
+	p, err := resultPath(name)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(p)
+	return string(b), err
+}
