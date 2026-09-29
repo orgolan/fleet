@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +28,63 @@ type Task struct {
 	State       string    `json:"state,omitempty"` // last observed: working, idle, blocked, done, exited, stopped (by fleet stop)
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at,omitempty"`
+
+	// extra keeps fields written by a newer fleet that this version does not know,
+	// so an older supervisor rewriting a record never drops them.
+	extra map[string]json.RawMessage
+}
+
+// jsonKeys are the JSON names of Task's own fields.
+var jsonKeys = func() map[string]bool {
+	keys := map[string]bool{}
+	rt := reflect.TypeOf(Task{})
+	for i := 0; i < rt.NumField(); i++ {
+		if name, _, _ := strings.Cut(rt.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {
+			keys[name] = true
+		}
+	}
+	return keys
+}()
+
+type plainTask Task // Task without the custom (un)marshalers
+
+func (t *Task) UnmarshalJSON(b []byte) error {
+	var p plainTask
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(b, &all); err != nil {
+		return err
+	}
+	for k := range all {
+		if jsonKeys[k] {
+			delete(all, k)
+		}
+	}
+	*t = Task(p)
+	t.extra = nil
+	if len(all) > 0 {
+		t.extra = all
+	}
+	return nil
+}
+
+func (t Task) MarshalJSON() ([]byte, error) {
+	b, err := json.Marshal(plainTask(t))
+	if err != nil || len(t.extra) == 0 {
+		return b, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	for k, v := range t.extra {
+		if _, own := m[k]; !own && !jsonKeys[k] {
+			m[k] = v
+		}
+	}
+	return json.Marshal(m)
 }
 
 // Dir is $FLEET_HOME, else ~/.local/state/fleet.
@@ -119,7 +177,7 @@ func Update(name string, fn func(*Task)) error {
 		}
 		before := t
 		fn(&t)
-		if t == before {
+		if reflect.DeepEqual(t, before) {
 			return nil
 		}
 		return Save(t)

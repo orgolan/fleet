@@ -82,7 +82,7 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet events` | Stream herdr events (debugging). |
 | `fleet tasks` | List recorded tasks from the ledger. |
 | `fleet spawn [--kind claude] [--project NAME \| --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]` | Create worktree (branch `fleet/<name>`), workspace and named agent; record the task; send the brief once the agent is ready. |
-| `fleet project new\|clone\|add\|list\|show\|note\|rm` | Create, clone or register the repos in scope, and keep notes on them (see Projects). |
+| `fleet project new\|clone\|add\|trust\|list\|show\|note\|rm` | Create, clone or register the repos in scope, and keep notes on them (see Projects). |
 | `fleet status [--json]` | Tasks merged with live herdr status. |
 | `fleet send <name> <text...>` | Prompt a crewmate. Refuses if it is blocked. |
 | `fleet read <name> [--lines N]` | Tail of a crewmate's output. |
@@ -90,13 +90,91 @@ is also linked at `.claude/skills/`, so it works inside this repo with no instal
 | `fleet keys <name> <key...>` | Captain answers a blocked prompt, e.g. `enter`, `esc`, `ctrl+c`. |
 | `fleet focus <name>` | Focus the crewmate in the herdr UI. |
 | `fleet stop <name> [--force]` | Remove worktree and workspace, mark the task stopped. Its last output is saved for `fleet result`. |
-| `fleet prune [--older-than 7d] [--dry-run]` | Delete the records (and saved output) of tasks stopped longer ago than that. Live and exited tasks are never pruned. |
+| `fleet prune [--older-than 7d] [--dry-run] [name...]` | Delete the records (and saved output) of tasks stopped longer ago than that. Live and exited tasks are never pruned. |
 | `fleet up` | Ensure the supervisor runs (starts `fleet supervise` in its own `fleet-supervisor` herdr workspace). `spawn` does this automatically. |
 | `fleet supervise [--poll 20s]` | Event-driven supervisor; single instance. |
 | `fleet doctor` | Environment checklist. |
 | `fleet version` | Print the version. |
 
 Agent names must match `[a-z][a-z0-9_-]{0,31}` (herdr's rule).
+
+## Projects
+
+`projects/<name>/project.json` (repo path, default base ref) and
+`projects/<name>/notes.md` (conventions, test commands, gotchas) record which
+repos are in scope. `fleet project new` and `clone` also put the repo itself at
+`projects/<name>/repo`; `add` registers a repo that lives elsewhere. `rm` refuses
+to delete a repo that lives in `projects/` unless you pass `--force`.
+### Notes: the first mate's memory of a project
+
+`notes.md` has two sections of one-line entries, numbered across both:
+
+- **Conventions**: stable facts (build and test commands, rules). Always sent to crewmates.
+- **Log**: dated lessons and outcomes. Only the newest 10 are sent.
+
+```bash
+fleet project note myapp --conv "run go test ./... before finishing"
+fleet project note myapp "login redirect loops when the cookie is missing"   # dated log entry
+fleet project show myapp                    # record, numbered notes, and the project's tasks
+fleet project note myapp --edit 2 "..."     # replace note 2 (keeps its date)
+fleet project note myapp --rm 3
+```
+
+`fleet spawn --project <name>` uses the registered repo and base, records the
+project on the task, and appends the conventions and recent log to the
+crewmate's brief. Notes over 3000 characters trigger a warning to trim them.
+`fleet stop` reminds you to record what the next crewmate should know; the
+crewmate's report itself is kept (`fleet result`), and `fleet project show` lists
+the project's tasks from the ledger. Old flat notes files are migrated to the
+Log section the first time they are written.
+
+Only `projects/README.md` and `projects/_example/` are tracked; real entries are
+gitignored so your repo list stays local. The folder is `$FLEET_PROJECTS`, else
+`projects/` in the checkout the binary runs from (`bin/fleet`), else
+`$FLEET_HOME/projects`. `install` links the binary instead of copying it, so
+it always finds the checkout. `fleet doctor` prints the folder in use.
+
+## How the supervisor works
+
+`fleet supervise` (normally started by `fleet up`) holds a lock so only one runs.
+It subscribes to herdr's pane lifecycle events (`pane.agent_detected`,
+`pane.exited`, `pane.closed`) and, for each crewmate's pane, to
+`pane.agent_status_changed`. It reacts to transitions only; repeated statuses
+are ignored.
+
+| Transition | Action |
+|---|---|
+| agent becomes `blocked` | Toast "needs you" with the last lines of output. |
+| becomes `idle`/`done` and the brief is unsent | Deliver the brief, once. |
+| `working` -> `idle`/`done` | Toast "finished a turn" with the tail of output. |
+| pane exits or closes | Record `exited`, toast. |
+
+Every state change is written to the task ledger. Roughly every `--poll` it also
+reconciles ledger against `herdr agent list` to catch missed events, and it
+reconnects if the event stream drops.
+
+### Trust prompt
+
+A fresh Claude Code in a new worktree asks "trust this folder". Registering a
+project is your decision to trust it, so fleet records that up front:
+
+- `fleet project new` and `fleet project add` mark the repo trusted in Claude Code
+  (`--no-trust` opts out). `fleet project clone` does not, because it is someone
+  else's code: look at it, then run `fleet project trust <name>` (or clone with
+  `--trust`).
+- `fleet spawn --project <name>` marks each new worktree trusted when its project
+  is, so crewmates start without the dialog.
+- The only thing fleet writes is `projects[<path>].hasTrustDialogAccepted` in
+  `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`); the rest of that file
+  is left byte-for-byte as it was.
+
+A spawn with `--repo` (not a registered project) still stops at the prompt: the
+agent goes `blocked`, the brief is recorded but not sent, and the supervisor toasts
+you. Resolve it in the herdr UI (`fleet focus <name>`) or, only if you approve, with
+`fleet keys <name> down enter` (the highlight starts on "No, exit"). When the agent
+next goes idle the supervisor delivers the brief automatically.
+`--trust-repository` on `spawn` is git's per-request trust for the worktree, a
+separate thing.
 
 ## Projects
 
@@ -183,7 +261,7 @@ that the agent really has the brief. If not, it toasts you and does not resend
 State lives in `$FLEET_HOME` (default `~/.local/state/fleet`):
 
 ```
-tasks/<name>.json     one record per crewmate: repo, branch, worktree, workspace,
+tasks/<name>.json     one record per crewmate (fields a newer fleet wrote are kept when an older one rewrites it): repo, branch, worktree, workspace,
                       pane, brief, brief_sent, last state, timestamps
 tasks/<name>.result.txt  its last output, saved by `fleet stop`
 supervisor.lock       single-instance lock; holds the pid of the running supervisor
@@ -193,8 +271,9 @@ Worktrees are created under `~/.herdr/worktrees` on branch `fleet/<name>`.
 
 ## Safety model
 
-- Fleet never auto-answers an approval, trust, or permission prompt. `fleet send`
-  refuses while blocked; `fleet keys` exists for the captain's decision.
+- Fleet never auto-answers an approval or permission prompt. `fleet send` refuses
+  while blocked; `fleet keys` exists for the captain's decision. Folder trust is
+  the one decision made ahead of time: by registering a project (see Trust prompt).
 - It only stops or removes things it created (recorded in the ledger).
 - No permission-bypass flags are added to crewmates; pass any yourself after `--`.
 - Fleet does not run destructive git on your projects; it adds a worktree and

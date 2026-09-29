@@ -31,6 +31,9 @@ or when `bin/fleet` does not exist or `fleet` is not on PATH.
    - `fleet project new <name>`: an empty git repo in `projects/<name>/repo`
    - `fleet project clone <name> <url>`: clone into `projects/<name>/repo`
    - `fleet project add <name> <path>`: use a repo they already have
+   `new` and `add` also tell Claude Code to trust the folder, so crewmates never
+   stop at the trust dialog (that is the captain's decision: say so). A clone is
+   not trusted until the captain has looked at it and says to run `fleet project trust <name>`.
    Then record build and test commands as conventions:
    `fleet project note <name> --conv "..."`.
 5. **Hand over.** From here act as the first mate under the `fleet` skill:

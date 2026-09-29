@@ -24,6 +24,7 @@ report its findings; do not try to fix the environment silently.
 
 ```
 fleet spawn [--kind claude] [--project NAME | --repo PATH] [--branch B] [--base REF] [--with-dirty] [--trust-repository] <name> [brief...] [-- agent-args...]
+fleet project trust <name>  (captain's decision) trust the project folder in Claude Code
 fleet up                     ensure the supervisor runs (spawn does this itself; toasts the captain on blocked / turn finished / exited)
 fleet status [--json]        tasks merged with live herdr status
 fleet read <name> [--lines N]
@@ -92,18 +93,24 @@ The crewmate has no memory of this conversation. The brief must be self-containe
 
 ## Blocked crewmates
 
-A `blocked` agent is waiting on an approval or question. A new Claude worktree
-shows a "trust this folder" prompt first; the brief is recorded but held until
-the prompt is resolved, then the supervisor delivers it automatically.
+A `blocked` agent is waiting on an approval or question. Crewmates spawned with
+`--project` for a registered project start without the folder-trust dialog (the
+captain trusted the project when registering it). A spawn with `--repo`, or a
+project registered with `--no-trust` or cloned without `--trust`, shows Claude
+Code's "trust this folder" prompt first; the brief is held until it is resolved,
+then the supervisor delivers it automatically.
 
 1. Run `fleet read <name>` to see the exact prompt.
-2. Tell the captain what it asks and **ask before sending any keys.**
-3. Only if the captain approves, `fleet keys <name> enter` (or the key they
-   name). If they prefer, they can answer in the herdr UI; `fleet focus <name>`
-   takes them there.
+2. Tell the captain what it asks and **ask before sending any keys.** Suggest
+   registering the repo (`fleet project add`) so it does not recur.
+3. Only if the captain approves, send the keys they name (`fleet keys <name> down enter`
+   for "Yes, I trust this folder": the highlight starts on "No, exit"). If they
+   prefer, they can answer in the herdr UI; `fleet focus <name>` takes them there.
 
-Never answer approval, trust, or permission prompts yourself. Never use
-`--trust-repository` unless the captain has said to trust that repository.
+Never answer approval or permission prompts yourself. Never use
+`--trust-repository` unless the captain has said to trust that repository. Never
+run `fleet project trust`, or register a project with trust, on your own: that is
+the captain's decision about code they own.
 
 ## Rules
 

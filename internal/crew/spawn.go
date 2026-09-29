@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/orgolan/fleet/internal/claudetrust"
 	"github.com/orgolan/fleet/internal/herdr"
 	"github.com/orgolan/fleet/internal/ledger"
 )
@@ -29,6 +30,9 @@ type Spec struct {
 	Args    []string // native agent arguments
 	Trust   bool     // pass trust_repository for the worktree request
 	Dirty   bool     // copy the repo's uncommitted changes into the new worktree
+	// TrustClaude marks the new worktree trusted in Claude Code, because the captain
+	// trusted the project when registering it.
+	TrustClaude bool
 }
 
 // Spawn creates the worktree and workspace, starts the agent and sends the brief.
@@ -61,6 +65,12 @@ func Spawn(c *herdr.Client, s Spec) (ledger.Task, error) {
 	})
 	if err != nil {
 		return zero, fmt.Errorf("create worktree: %w", err)
+	}
+	if s.TrustClaude && s.Kind == "claude" {
+		// Best effort: if it fails the crewmate simply stops at the trust prompt for the captain.
+		if err := claudetrust.Trust(wt.Worktree.Path); err != nil {
+			fmt.Fprintf(os.Stderr, "fleet: warning: could not pre-trust %s in Claude Code: %v\n", wt.Worktree.Path, err)
+		}
 	}
 	t := ledger.Task{
 		Name: s.Name, Kind: s.Kind, Repo: repo, Project: s.Project, Branch: s.Branch, Worktree: wt.Worktree.Path,

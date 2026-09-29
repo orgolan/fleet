@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/orgolan/fleet/internal/claudetrust"
 	"github.com/orgolan/fleet/internal/crew"
 	"github.com/orgolan/fleet/internal/herdr"
 	"github.com/orgolan/fleet/internal/ledger"
@@ -86,6 +87,8 @@ func applyProject(spec *crew.Spec, name string) error {
 	}
 	spec.Repo = p.Path
 	spec.Project = name
+	// The captain trusted this project when registering it (fleet project add/new/trust).
+	spec.TrustClaude, _ = claudetrust.IsTrusted(p.Path)
 	if spec.Base == "" {
 		spec.Base = p.Base
 	}
@@ -228,19 +231,21 @@ func writeStatus(w *os.File, rows []crew.Row, asJSON bool) error {
 // prune deletes old stopped-task records; --dry-run only lists them.
 func prune(args []string) error {
 	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
+	// usage: fleet prune [--older-than 7d] [--dry-run] [name...]
 	older := fs.String("older-than", "7d", "only tasks stopped longer ago than this (e.g. 12h, 7d; 0 for all stopped)")
 	dry := fs.Bool("dry-run", false, "list what would be deleted, delete nothing")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: fleet prune [--older-than 7d] [--dry-run]")
-	}
+	names := fs.Args()
 	d, err := parseAge(*older)
 	if err != nil {
 		return err
 	}
-	ts, err := crew.Prune(d, *dry, time.Now())
+	if len(names) > 0 && *older == "7d" {
+		d = 0 // naming tasks means "these, now"
+	}
+	ts, err := crew.Prune(d, *dry, time.Now(), names...)
 	if err != nil {
 		return err
 	}

@@ -7,15 +7,17 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/orgolan/fleet/internal/claudetrust"
 	"github.com/orgolan/fleet/internal/ledger"
 	"github.com/orgolan/fleet/internal/projects"
 )
 
 const projectUsage = `usage: fleet project <subcommand>
 
-  new <name>                       create an empty git repo under projects/<name>/repo
-  clone <name> <url>               clone a repo under projects/<name>/repo
-  add <name> <path> [--base REF]   put an existing git repo (anywhere) in scope
+  new <name> [--no-trust]          create an empty git repo under projects/<name>/repo
+  clone <name> <url> [--trust]     clone a repo under projects/<name>/repo
+  add <name> <path> [--base REF] [--no-trust]   put an existing git repo (anywhere) in scope
+  trust <name>                     tell Claude Code to trust the project's folder
   list [--json]                    registered projects
   show <name>                      record, numbered notes and the project's tasks
   note <name> [--conv] <text...>   add a note (a dated log entry; --conv: an always-sent convention)
@@ -33,6 +35,7 @@ func project(args []string) error {
 	case "add":
 		fs := flag.NewFlagSet("project add", flag.ContinueOnError)
 		base := fs.String("base", "", "default base ref for new branches")
+		noTrust := fs.Bool("no-trust", false, "do not pre-trust the repo in Claude Code")
 		pos, err := parseInterspersed(fs, rest)
 		if err != nil {
 			return err
@@ -45,27 +48,51 @@ func project(args []string) error {
 			return err
 		}
 		fmt.Printf("added %s -> %s\n", p.Name, p.Path)
-		return nil
+		return trustProject(p, !*noTrust)
 	case "new":
-		if len(rest) != 1 {
-			return fmt.Errorf("usage: fleet project new <name>")
+		fs := flag.NewFlagSet("project new", flag.ContinueOnError)
+		noTrust := fs.Bool("no-trust", false, "do not pre-trust the repo in Claude Code")
+		pos, err := parseInterspersed(fs, rest)
+		if err != nil {
+			return err
 		}
-		p, err := projects.New(rest[0])
+		if len(pos) != 1 {
+			return fmt.Errorf("usage: fleet project new <name> [--no-trust]")
+		}
+		p, err := projects.New(pos[0])
 		if err != nil {
 			return err
 		}
 		fmt.Printf("created %s at %s\n", p.Name, p.Path)
-		return nil
+		return trustProject(p, !*noTrust)
 	case "clone":
-		if len(rest) != 2 {
-			return fmt.Errorf("usage: fleet project clone <name> <url>")
+		fs := flag.NewFlagSet("project clone", flag.ContinueOnError)
+		trust := fs.Bool("trust", false, "pre-trust the clone in Claude Code (only for code you trust)")
+		pos, err := parseInterspersed(fs, rest)
+		if err != nil {
+			return err
 		}
-		p, err := projects.Clone(rest[0], rest[1])
+		if len(pos) != 2 {
+			return fmt.Errorf("usage: fleet project clone <name> <url> [--trust]")
+		}
+		p, err := projects.Clone(pos[0], pos[1])
 		if err != nil {
 			return err
 		}
 		fmt.Printf("cloned %s to %s\n", p.Name, p.Path)
-		return nil
+		if !*trust {
+			fmt.Printf("not pre-trusted in Claude Code (it is someone else's code): after you have looked at it, run: fleet project trust %s\n", p.Name)
+		}
+		return trustProject(p, *trust)
+	case "trust":
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: fleet project trust <name>")
+		}
+		p, err := projects.Get(rest[0])
+		if err != nil {
+			return err
+		}
+		return trustProject(p, true)
 	case "list":
 		fs := flag.NewFlagSet("project list", flag.ContinueOnError)
 		asJSON := fs.Bool("json", false, "print a JSON array")
@@ -203,5 +230,19 @@ func noteCmd(args []string) error {
 	if n := nf.Size(); n > projects.WarnChars {
 		fmt.Fprintf(os.Stderr, "fleet: warning: notes are %d characters (more than %d); trim with `fleet project note %s --rm N`\n", n, projects.WarnChars, name)
 	}
+	return nil
+}
+
+// trustProject records Claude Code's folder trust for a project's repo, so its
+// worktrees do not stop at the trust dialog. Registering a project is the
+// captain's decision to trust it; --no-trust (or clone without --trust) opts out.
+func trustProject(p projects.Project, do bool) error {
+	if !do {
+		return nil
+	}
+	if err := claudetrust.Trust(p.Path); err != nil {
+		return fmt.Errorf("could not pre-trust %s in Claude Code (crewmates will ask you instead): %w", p.Path, err)
+	}
+	fmt.Printf("trusted %s in Claude Code\n", p.Path)
 	return nil
 }

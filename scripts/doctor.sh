@@ -105,7 +105,10 @@ if [ -d "$PROJ" ]; then
 			n=$((n + 1))
 			if git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
 				ok "project $name -> $path"
-				br=$(git -C "$path" branch --list 'fleet/*' | wc -l)
+				# leftover = fleet/* branches that no worktree has checked out (live crewmates use theirs)
+				inuse=$(git -C "$path" worktree list --porcelain | sed -n 's#^branch refs/heads/##p')
+				br=$(git -C "$path" branch --list 'fleet/*' --format='%(refname:short)' | grep -vxF -e "$inuse" -e '' 2>/dev/null | wc -l)
+				[ -z "$inuse" ] && br=$(git -C "$path" branch --list 'fleet/*' | wc -l)
 				[ "$br" -gt 0 ] && warn "$name has $br leftover fleet/* branch(es)" "after merging, delete them: git -C $path branch --list 'fleet/*'"
 			else
 				fail "project $name points at $path, which is not a git repo" "fleet project rm $name && fleet project add $name <path>"
