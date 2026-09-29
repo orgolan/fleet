@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"fleet/internal/crew"
 	"fleet/internal/herdr"
 	"fleet/internal/ledger"
+	"fleet/internal/supervisor"
 )
 
 const usage = `usage: fleet <command>
@@ -22,6 +25,7 @@ commands:
   events   stream agent status changes (Ctrl+C to stop)
   spawn    start a crewmate in its own worktree: fleet spawn [flags] <name> [brief...]
   tasks    list recorded tasks
+  supervise  watch the crew: deliver briefs, notify on blocked/finished/exited
 `
 
 func main() {
@@ -39,6 +43,8 @@ func main() {
 		err = spawn(os.Args[2:])
 	case "tasks":
 		err = tasks()
+	case "supervise":
+		err = supervise(os.Args[2:])
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -131,4 +137,23 @@ func printJSON(v any) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+func supervise(args []string) error {
+	fs := flag.NewFlagSet("supervise", flag.ContinueOnError)
+	poll := fs.Duration("poll", 20*time.Second, "reconcile interval (safety net for missed events)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	s := supervisor.New(herdr.New(), log.New(os.Stderr, "", log.LstdFlags))
+	s.Poll = *poll
+	s.Log.Printf("supervising (state in %s)", stateDir())
+	return s.Run(ctx)
+}
+
+func stateDir() string {
+	d, _ := ledger.Dir()
+	return d
 }
